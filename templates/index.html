@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>年度影片大比拚</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        background-color: #000;
+        color: #fff;
+      }
+
+      .upload-container {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 1000;
+      }
+
+      #fileInput {
+        display: none;
+      }
+
+      .upload-btn {
+        background-color: rgba(0, 149, 246, 0.9);
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 24px;
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+      }
+
+      .upload-btn:hover {
+        background-color: rgba(0, 149, 246, 1);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      }
+
+      .upload-btn:active {
+        transform: translateY(0);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .upload-btn::before {
+        content: "📤";
+        font-size: 20px;
+      }
+
+      .video-container {
+        height: 100vh;
+        width: 100vw;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .video-item {
+        height: 100%;
+        width: 100%;
+        display: none;
+        position: relative;
+        z-index: 1000;
+      }
+
+      .video-item.active {
+        display: block;
+      }
+
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        pointer-events: none;
+      }
+
+      .video-controls {
+        position: absolute;
+        bottom: 80px;
+        left: 0;
+        right: 0;
+        padding: 20px;
+        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+        z-index: 1002;
+      }
+
+      .navigation-controls {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        transform: translateY(-50%);
+        display: flex;
+        justify-content: space-between;
+        padding: 0 20px;
+        z-index: 1005;
+      }
+
+      .nav-btn {
+        background-color: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .nav-btn:hover {
+        background-color: rgba(255, 255, 255, 0.3);
+        transform: scale(1.1);
+      }
+
+      .video-info {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background-color: rgba(0, 0, 0, 0.5);
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        color: white;
+      }
+
+      .vote-btn {
+        background-color: #ff4757;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 20px;
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: background-color 0.3s;
+      }
+
+      .vote-btn.voted {
+        background-color: #2ed573;
+      }
+
+      .vote-btn::before {
+        content: "👍";
+        font-size: 16px;
+      }
+
+      .vote-btn.voted::before {
+        content: "✓";
+      }
+
+      .progress-container {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        gap: 4px;
+        padding: 10px;
+        z-index: 1000;
+      }
+
+      .progress-item {
+        flex: 1;
+        height: 2px;
+        background-color: rgba(255, 255, 255, 0.3);
+        position: relative;
+      }
+
+      .progress-item .progress-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        background-color: rgba(255, 255, 255, 0.9);
+        width: 0%;
+      }
+
+      .progress-item.viewed .progress-bar {
+        width: 100%;
+      }
+
+      .loading {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border-radius: 10px;
+        display: none;
+        text-align: center;
+        z-index: 2000;
+        min-width: 200px;
+        color: white;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+      }
+
+      .loading-progress {
+        margin-top: 10px;
+        font-size: 14px;
+        color: #fff;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 10px auto;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .upload-form-container {
+        display: none;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: rgba(0, 0, 0, 0.9);
+        padding: 20px;
+        border-radius: 10px;
+        z-index: 2000;
+        width: 90%;
+        max-width: 400px;
+      }
+
+      .form-group {
+        margin-bottom: 15px;
+      }
+
+      .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        color: white;
+      }
+
+      .form-control {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #444;
+        border-radius: 4px;
+        background-color: #333;
+        color: white;
+      }
+
+      .form-text {
+        color: #888;
+        font-size: 12px;
+        margin-top: 4px;
+      }
+
+      .btn-primary {
+        background-color: #0095f6;
+        color: white;
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      .btn-primary:hover {
+        background-color: #0081d6;
+      }
+
+      .close-btn {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: none;
+        border: none;
+        color: white;
+        font-size: 20px;
+        cursor: pointer;
+      }
+
+      .video-title {
+        position: absolute;
+        top: 60px;
+        left: 20px;
+        right: 20px;
+        text-align: center;
+        background-color: transparent;
+        color: rgba(255, 255, 255, 0.8);
+        padding: 10px;
+        font-size: 14px;
+        z-index: 10;
+        font-family: "Microsoft JhengHei", sans-serif;
+        text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+      }
+
+      .side-nav {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 25%;
+        cursor: pointer;
+        z-index: 1005;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: auto;
+      }
+
+      .side-nav:hover {
+        opacity: 0.1;
+        background-color: rgba(255, 255, 255, 0.2);
+      }
+
+      .side-nav.prev {
+        left: 0;
+      }
+
+      .side-nav.next {
+        right: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="welcomeModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 3000;
+      "
+    >
+      <div
+        style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          background: white;
+          padding: 20px;
+          border-radius: 10px;
+          max-width: 80%;
+          width: 400px;
+          text-align: center;
+          font-family: 'Microsoft JhengHei', sans-serif;
+        "
+      >
+        <h2 style="color: #000a96; margin-bottom: 14px">2024年度影片比賽</h2>
+        <p style="color: #474747; line-height: 1.6">
+          在這裡有大家精心挑選的今年當中最經典的代表影片，謝謝你這這麼喜愛我們的女兒，請投神聖一票吧。
+        </p>
+        <button
+          onclick="closeWelcomeModal()"
+          style="
+            background: #0095f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            margin-top: 15px;
+            cursor: pointer;
+          "
+        >
+          開始投票
+        </button>
+      </div>
+    </div>
+
+    <div class="video-container" id="videoContainer">
+      <!-- 影片將在這裡動態加載 -->
+    </div>
+
+    <div class="progress-container" id="progressContainer">
+      <!-- 進度條將在這裡動態生成 -->
+    </div>
+
+    <div class="navigation-controls">
+      <button class="nav-btn" onclick="previousVideo()">◀</button>
+      <button class="nav-btn" onclick="nextVideo()">▶</button>
+    </div>
+
+    <div class="upload-container">
+      <button class="upload-btn" onclick="showUploadForm()">上傳影片</button>
+    </div>
+
+    <div class="loading" id="loading">
+      <div class="loading-progress" id="loadingProgress">
+        <div class="loading-spinner"></div>
+        <div>準備上傳...</div>
+        <small style="color: #999">請稍候</small>
+      </div>
+    </div>
+
+    <div class="upload-form-container" id="uploadFormContainer">
+      <button class="close-btn" onclick="closeUploadForm()">×</button>
+      <form id="uploadForm" enctype="multipart/form-data">
+        <div class="form-group">
+          <label for="custom_filename">檔案名稱：</label>
+          <input
+            type="text"
+            id="custom_filename"
+            name="custom_filename"
+            class="form-control"
+            required
+          />
+          <small class="form-text text-muted"
+            >請輸入想要的檔案名稱（不需要包含副檔名）</small
+          >
+        </div>
+        <div class="form-group">
+          <label for="video">選擇影片：</label>
+          <input
+            type="file"
+            id="video"
+            name="video"
+            accept=".mp4,.mov,.avi"
+            class="form-control"
+            required
+          />
+          <small class="form-text text-muted"
+            >支援的格式：MP4, MOV, AVI（最大 100MB）</small
+          >
+        </div>
+        <button type="submit" class="btn-primary">上傳</button>
+      </form>
+    </div>
+
+    <script>
+      let currentVideoIndex = 0;
+      let videos = [];
+      let isPlaying = true;
+
+      // 檢查是否為第一次訪問
+      function checkFirstVisit() {
+        if (!localStorage.getItem("hasVisited")) {
+          document.getElementById("welcomeModal").style.display = "block";
+          localStorage.setItem("hasVisited", "true");
+        }
+      }
+
+      function closeWelcomeModal() {
+        document.getElementById("welcomeModal").style.display = "none";
+      }
+
+      // 在頁面加載時檢查
+      window.onload = function () {
+        checkFirstVisit();
+        loadVideos();
+        checkUploadStatus();
+      };
+
+      // 加載所有影片
+      async function loadVideos() {
+        const response = await fetch("/videos");
+        videos = await response.json();
+        if (videos.length > 0) {
+          createProgressBars();
+          showVideo(0);
+        }
+      }
+
+      // 創建所有進度條
+      function createProgressBars() {
+        const container = document.getElementById("progressContainer");
+        container.innerHTML = "";
+
+        videos.forEach((_, index) => {
+          const progressItem = document.createElement("div");
+          progressItem.className = "progress-item";
+          if (index < currentVideoIndex) {
+            progressItem.className += " viewed";
+          }
+
+          const progressBar = document.createElement("div");
+          progressBar.className = "progress-bar";
+
+          progressItem.appendChild(progressBar);
+          container.appendChild(progressItem);
+        });
+      }
+
+      // 更新當前進度條
+      function updateProgressBar(video) {
+        const progressBars = document.querySelectorAll(".progress-item");
+        const currentProgress =
+          progressBars[currentVideoIndex].querySelector(".progress-bar");
+        const progress = (video.currentTime / video.duration) * 100;
+        currentProgress.style.width = `${progress}%`;
+      }
+
+      // 顯示特定索引的影片
+      function showVideo(index) {
+        const videoContainer = document.getElementById("videoContainer");
+        videoContainer.innerHTML = "";
+
+        if (videos.length === 0) return;
+
+        const videoItem = document.createElement("div");
+        videoItem.className = "video-item active";
+
+        const video = document.createElement("video");
+        video.src = `/uploads/${videos[index].filename}`;
+        video.autoplay = true;
+        video.loop = false;
+        video.muted = false;
+        video.playsInline = true;
+
+        // 記錄觀看次數
+        video.onplay = async () => {
+          try {
+            await fetch(`/view/${videos[index].filename}`, {
+              method: "POST",
+            });
+          } catch (error) {
+            console.error("無法記錄觀看次數:", error);
+          }
+        };
+
+        const videoInfo = document.createElement("div");
+        videoInfo.className = "video-info";
+        videoInfo.textContent = videos[index].title;
+
+        const controls = document.createElement("div");
+        controls.className = "video-controls";
+
+        const voteBtn = document.createElement("button");
+        voteBtn.className = "vote-btn";
+        if (videos[index].voted) {
+          voteBtn.classList.add("voted");
+        }
+        voteBtn.innerHTML = `
+                投票
+                <span class="vote-count">${videos[index].votes}</span>
+            `;
+
+        voteBtn.onclick = async (event) => {
+          event.stopPropagation();
+          try {
+            const response = await fetch(`/vote/${videos[index].filename}`, {
+              method: "POST",
+            });
+            const data = await response.json();
+
+            // 更新本地存儲的投票狀態
+            videos[currentVideoIndex].votes = data.votes;
+            videos[currentVideoIndex].voted = data.voted; // 更新投票狀態
+
+            // 更新按鈕狀態
+            if (data.voted) {
+              voteBtn.classList.add("voted");
+            } else {
+              voteBtn.classList.remove("voted");
+            }
+
+            voteBtn.innerHTML = `
+                投票
+                <span class="vote-count">${data.votes}</span>
+            `;
+          } catch (error) {
+            console.error("投票失敗:", error);
+            alert("投票失敗，請稍後再試");
+          }
+        };
+
+        // 添加點擊暫停/播放功能
+        videoItem.onclick = (event) => {
+          // 確保點擊不是來自側邊導航
+          if (!event.target.classList.contains("side-nav")) {
+            if (video.paused) {
+              video.play();
+              isPlaying = true;
+            } else {
+              video.pause();
+              isPlaying = false;
+            }
+          }
+        };
+
+        controls.appendChild(voteBtn);
+        videoItem.appendChild(video);
+        videoItem.appendChild(videoInfo);
+        videoItem.appendChild(controls);
+        videoContainer.appendChild(videoItem);
+
+        if (!isPlaying) {
+          video.pause();
+        } else {
+          video.play();
+        }
+
+        // 影片結束時播放下一個
+        video.onended = () => {
+          const progressBars = document.querySelectorAll(".progress-item");
+          progressBars[currentVideoIndex].className = "progress-item viewed";
+          nextVideo();
+        };
+
+        // 更新進度條
+        video.ontimeupdate = () => {
+          updateProgressBar(video);
+        };
+
+        // 更新所有進度條的狀態
+        const progressBars = document.querySelectorAll(".progress-item");
+        progressBars.forEach((bar, i) => {
+          if (i < index) {
+            // 將之前的影片進度條都設已完成
+            bar.className = "progress-item viewed";
+            const progressBar = bar.querySelector(".progress-bar");
+            progressBar.style.width = "100%";
+          } else if (i > index) {
+            // 重置後面的影片進進度條
+            bar.className = "progress-item";
+            const progressBar = bar.querySelector(".progress-bar");
+            progressBar.style.width = "0%";
+          }
+        });
+      }
+
+      // 切換到下一個影片
+      function nextVideo() {
+        if (videos.length <= 1) return;
+
+        // 將當前影片的進度條為完成
+        const progressBars = document.querySelectorAll(".progress-item");
+        const currentProgress = progressBars[currentVideoIndex];
+        currentProgress.className = "progress-item viewed";
+        const progressBar = currentProgress.querySelector(".progress-bar");
+        progressBar.style.width = "100%";
+
+        currentVideoIndex = (currentVideoIndex + 1) % videos.length;
+        showVideo(currentVideoIndex);
+      }
+
+      // 切換到上一個影片
+      function previousVideo() {
+        if (videos.length <= 1) return;
+
+        // 重置當前影片的進度條
+        const progressBars = document.querySelectorAll(".progress-item");
+        const currentProgress = progressBars[currentVideoIndex];
+        currentProgress.className = "progress-item";
+        const progressBar = currentProgress.querySelector(".progress-bar");
+        progressBar.style.width = "0%";
+
+        currentVideoIndex =
+          (currentVideoIndex - 1 + videos.length) % videos.length;
+        showVideo(currentVideoIndex);
+      }
+
+      function showUploadForm() {
+        document.getElementById("uploadFormContainer").style.display = "block";
+      }
+
+      function closeUploadForm() {
+        document.getElementById("uploadFormContainer").style.display = "none";
+      }
+
+      // 修改上傳表單的提交處理
+      document.getElementById("uploadForm").onsubmit = async function (e) {
+        e.preventDefault();
+
+        const formData = new FormData();
+        const videoFile = document.getElementById("video").files[0];
+        const customFilename = document
+          .getElementById("custom_filename")
+          .value.trim();
+
+        if (!videoFile) {
+          alert("請選擇影片檔案");
+          return;
+        }
+
+        if (!customFilename) {
+          alert("請輸入檔案名稱");
+          return;
+        }
+
+        // 檢查檔案大小
+        if (videoFile.size > 100 * 1024 * 1024) {
+          alert("檔案大小不能超過 100MB");
+          return;
+        }
+
+        formData.append("video", videoFile);
+        formData.append("custom_filename", customFilename);
+
+        // 關閉上傳表單
+        closeUploadForm();
+
+        // 顯示上傳中的提示
+        const loadingEl = document.getElementById("loading");
+        const progressEl = document.getElementById("loadingProgress");
+        loadingEl.style.display = "block";
+        progressEl.innerHTML = `
+            <div class="loading-spinner"></div>
+            <div style="font-size: 16px; margin: 10px 0;">影片上傳中...</div>
+            <small style="color: #999">請勿關閉視窗，上傳完成後會自動處理</small>
+        `;
+
+        try {
+          const response = await fetch("/upload", {
+            method: "POST",
+            body: formData,
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            progressEl.innerHTML = `
+                    <div style="color: #2ecc71; font-size: 40px; margin: 10px 0;">✓</div>
+                    <div style="font-size: 16px;">上傳成功！</div>
+                    <small style="color: #999">頁面即將重新整理</small>
+                `;
+            setTimeout(() => {
+              document.querySelector(".upload-container").style.display =
+                "none";
+              location.reload();
+            }, 1500);
+          } else {
+            progressEl.innerHTML = `
+                    <div style="color: #e74c3c; font-size: 40px; margin: 10px 0;">✗</div>
+                    <div style="font-size: 16px;">${
+                      data.error || "上傳失敗"
+                    }</div>
+                `;
+            setTimeout(() => {
+              loadingEl.style.display = "none";
+            }, 1500);
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          progressEl.innerHTML = `
+                <div style="color: #e74c3c; font-size: 40px; margin: 10px 0;">✗</div>
+                <div style="font-size: 16px;">上傳時發生錯誤</div>
+            `;
+          setTimeout(() => {
+            loadingEl.style.display = "none";
+          }, 1500);
+        }
+      };
+
+      async function checkUploadStatus() {
+        try {
+          const response = await fetch("/check_upload_status");
+          const data = await response.json();
+          if (data.has_uploaded) {
+            document.querySelector(".upload-container").style.display = "none";
+          }
+        } catch (error) {
+          console.error("檢查上傳狀態失敗:", error);
+        }
+      }
+    </script>
+  </body>
+</html>

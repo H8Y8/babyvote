@@ -1,0 +1,23 @@
+# 忽略上傳的影片文件夾
+uploads/
+upload_records.json
+
+# Python 相關
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+
+# IDE 相關
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系統相關
+.DS_Store
+Thumbs.db 
