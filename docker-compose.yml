@@ -4,7 +4,7 @@ services:
   web:
     build: .
     ports:
-      - "5000:5000"
+      - "5003:5000"
     volumes:
       - ./uploads:/app/uploads
       - ./upload_records.json:/app/upload_records.json
