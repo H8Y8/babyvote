@@ -15,31 +15,12 @@ app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 增加到100MB，但會�
 app.config['ADMIN_PASSWORD'] = 'admin123'  # 在實際環境中應使用更安全的方式存儲
 ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi'}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 16MB 限制
-UPLOAD_RECORD_FILE = 'upload_records.json'
 
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # 存儲影片數據
 videos = {}
-
-# 讀取已上傳的 IP 記錄
-def load_uploaded_ips():
-    if os.path.exists(UPLOAD_RECORD_FILE):
-        try:
-            with open(UPLOAD_RECORD_FILE, 'r') as f:
-                return set(json.load(f))
-        except:
-            return set()
-    return set()
-
-# 保存上傳記錄
-def save_uploaded_ips(ips):
-    with open(UPLOAD_RECORD_FILE, 'w') as f:
-        json.dump(list(ips), f)
-
-# 初始化上傳記錄
-uploaded_ips = load_uploaded_ips()
 
 # 添加日期格式化過濾器
 @app.template_filter('datetime')
@@ -139,7 +120,7 @@ def compress_video(input_path, output_path):
         if not output_path.lower().endswith(('.mp4', '.mov', '.avi')):
             output_path += '.mp4'  # 預設使用 mp4 格式
             
-        ffmpeg_path = r"D:\python\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe"
+        ffmpeg_path = 'ffmpeg'
         command = [ffmpeg_path, '-i', input_path] + FFMPEG_PARAMS + [output_path]
         
         # 添加錯誤日誌
@@ -171,11 +152,6 @@ def secure_chinese_filename(filename):
 # 修改上傳路由
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    user_ip = request.remote_addr
-    
-    if user_ip in uploaded_ips:
-        return jsonify({'error': '每個用戶只能上傳一次影片'}), 403
-    
     if 'video' not in request.files:
         return jsonify({'error': '沒有影片文件'}), 400
     
@@ -228,10 +204,6 @@ def upload_file():
                     os.remove(compressed_filepath)
                     return jsonify({'error': '壓縮後文件仍然過大'}), 400
                 
-                # 上傳成功後，記錄 IP 並保存
-                uploaded_ips.add(user_ip)
-                save_uploaded_ips(uploaded_ips)
-                
                 # 初始化影片數據
                 videos[filename] = {'votes': 0, 'views': 0, 'voters': set()}
                 return jsonify({'success': True, 'filename': filename})
@@ -259,7 +231,6 @@ def upload_file():
 
 @app.route('/videos')
 def get_videos():
-    user_ip = request.remote_addr
     video_files = []
     
     # 獲取所有影片的檔案和創建時間
@@ -283,16 +254,13 @@ def get_videos():
             'title': title,  # 添加標題
             'votes': stats.get('votes', 0),
             'views': stats.get('views', 0),
-            'voted': user_ip in stats.get('voters', set())
+            'voted': False
         })
     
     return jsonify(video_files)
 
 @app.route('/vote/<filename>', methods=['POST'])
 def vote(filename):
-    # 獲取用戶 IP
-    user_ip = request.remote_addr
-    
     if filename not in videos:
         videos[filename] = {'votes': 0, 'views': 0, 'voters': set()}
     
@@ -300,14 +268,14 @@ def vote(filename):
     if 'voters' not in videos[filename]:
         videos[filename]['voters'] = set()
         
-    if user_ip in videos[filename]['voters']:
+    if request.remote_addr in videos[filename]['voters']:
         # 如果已經投過票，收回投票
-        videos[filename]['voters'].remove(user_ip)
+        videos[filename]['voters'].remove(request.remote_addr)
         videos[filename]['votes'] -= 1
         voted = False
     else:
         # 如果還沒投過票，添加投票
-        videos[filename]['voters'].add(user_ip)
+        videos[filename]['voters'].add(request.remote_addr)
         videos[filename]['votes'] += 1
         voted = True
     
@@ -329,8 +297,7 @@ def uploaded_file(filename):
 
 @app.route('/check_upload_status')
 def check_upload_status():
-    user_ip = request.remote_addr
-    return jsonify({'has_uploaded': user_ip in uploaded_ips})
+    return jsonify({'has_uploaded': False})
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS

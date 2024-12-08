@@ -476,7 +476,6 @@
       window.onload = function () {
         checkFirstVisit();
         loadVideos();
-        checkUploadStatus();
       };
 
       // 加載所有影片
@@ -769,18 +768,6 @@
           }, 1500);
         }
       };
-
-      async function checkUploadStatus() {
-        try {
-          const response = await fetch("/check_upload_status");
-          const data = await response.json();
-          if (data.has_uploaded) {
-            document.querySelector(".upload-container").style.display = "none";
-          }
-        } catch (error) {
-          console.error("檢查上傳狀態失敗:", error);
-        }
-      }
     </script>
   </body>
 </html>
