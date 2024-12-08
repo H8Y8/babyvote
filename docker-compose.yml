@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./upload_records.json:/app/upload_records.json
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=production
+      - ADMIN_PASSWORD=admin123
+    restart: unless-stopped
