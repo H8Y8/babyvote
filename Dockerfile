@@ -14,6 +14,7 @@ WORKDIR /app
 COPY requirements.txt .
 COPY app.py .
 COPY templates/ templates/
+COPY static/ static/
 
 # 創建上傳目錄
 RUN mkdir uploads

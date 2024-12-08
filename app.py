@@ -9,7 +9,7 @@ import os.path
 import unicodedata
 import re
 
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  # 增加到100MB，但會在代碼中進行額外檢查
 app.config['ADMIN_PASSWORD'] = 'admin123'  # 在實際環境中應使用更安全的方式存儲
