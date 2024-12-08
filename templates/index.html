@@ -349,6 +349,31 @@
       .side-nav.next {
         right: 0;
       }
+
+      .play-hint {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.7);
+        padding: 20px;
+        border-radius: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        z-index: 1010;
+      }
+
+      .play-icon {
+        font-size: 40px;
+        color: white;
+      }
+
+      .play-text {
+        color: white;
+        font-size: 16px;
+      }
     </style>
   </head>
   <body>
@@ -464,6 +489,7 @@
       let currentVideoIndex = 0;
       let videos = [];
       let isPlaying = true;
+      let isMuted = true; // 添加全局靜音狀態
 
       // 檢查是否為第一次訪問
       function checkFirstVisit() {
@@ -535,18 +561,37 @@
         const video = document.createElement("video");
         video.src = `/uploads/${videos[index].filename}`;
         video.autoplay = true;
-        video.loop = false;
-        video.muted = false;
+        video.muted = isMuted; // 使用全局靜音狀態
         video.playsInline = true;
 
-        // 記錄觀看次數
-        video.onplay = async () => {
-          try {
-            await fetch(`/view/${videos[index].filename}`, {
-              method: "POST",
-            });
-          } catch (error) {
-            console.error("無法記錄觀看次數:", error);
+        // 只在靜音狀態下顯示提示
+        const playHint = document.createElement("div");
+        playHint.className = "play-hint";
+        playHint.innerHTML = `
+            <div class="play-icon">🔊</div>
+            <div class="play-text">點擊開啟聲音</div>
+        `;
+        playHint.style.display = isMuted ? "flex" : "none";
+        videoItem.appendChild(playHint);
+
+        // 修改點擊事件處理
+        videoItem.onclick = (event) => {
+          if (!event.target.classList.contains("side-nav")) {
+            if (video.muted) {
+              video.muted = false;
+              isMuted = false; // 更新全局靜音狀態
+              playHint.style.display = "none";
+              isPlaying = true;
+            } else {
+              // 如果不是靜音狀態，則切換播放/暫停
+              if (video.paused) {
+                video.play();
+                isPlaying = true;
+              } else {
+                video.pause();
+                isPlaying = false;
+              }
+            }
           }
         };
 
@@ -596,26 +641,13 @@
           }
         };
 
-        // 添加點擊暫停/播放功能
-        videoItem.onclick = (event) => {
-          // 確保點擊不是來自側邊導航
-          if (!event.target.classList.contains("side-nav")) {
-            if (video.paused) {
-              video.play();
-              isPlaying = true;
-            } else {
-              video.pause();
-              isPlaying = false;
-            }
-          }
-        };
-
         controls.appendChild(voteBtn);
         videoItem.appendChild(video);
         videoItem.appendChild(videoInfo);
         videoItem.appendChild(controls);
         videoContainer.appendChild(videoItem);
 
+        // 修改初始播放狀態
         if (!isPlaying) {
           video.pause();
         } else {

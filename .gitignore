@@ -1,7 +1,7 @@
 # 忽略上傳的影片文件夾
 uploads/
 upload_records.json
-
+static/
 # Python 相關
 __pycache__/
 *.pyc
