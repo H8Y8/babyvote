@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for, Response
+from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for, Response, after_this_request
 import os
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -8,6 +8,8 @@ import json
 import os.path
 import unicodedata
 import re
+from flask_sqlalchemy import SQLAlchemy
+import sqlite3
 
 app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -16,17 +18,59 @@ app.config['ADMIN_PASSWORD'] = 'admin123'  # 在實際環境中應使用更安�
 ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi'}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 16MB 限制
 
+# 配置 SQLite 數據庫
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///videos.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# 定義數據模型
+class Video(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), unique=True, nullable=False)
+    title = db.Column(db.String(255))
+    votes = db.Column(db.Integer, default=0)
+    views = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default='uploaded')
+    in_use = db.Column(db.Boolean, default=False)
+    original_path = db.Column(db.String(255))
+    compressed_path = db.Column(db.String(255))
+    upload_time = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Vote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    video_id = db.Column(db.Integer, db.ForeignKey('video.id'))
+    ip_address = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# 存儲影片數據
-videos = {}
+# 添加影片狀態常量
+VIDEO_STATUS = {
+    'UPLOADED': 'uploaded',
+    'COMPRESSING': 'compressing',
+    'COMPRESSED': 'compressed'
+}
+
+# 修改影片數據結構
+videos = {
+    # 'filename': {
+    #     'votes': 0,
+    #     'views': 0,
+    #     'voters': set(),
+    #     'status': 'uploaded',
+    #     'in_use': False,
+    #     'original_path': '',
+    #     'compressed_path': ''
+    # }
+}
 
 # 添加日期格式化過濾器
 @app.template_filter('datetime')
 def format_datetime(value):
-    dt = datetime.fromtimestamp(value)
-    return dt.strftime('%Y-%m-%d %H:%M:%S')
+    if isinstance(value, datetime):
+        return value.strftime('%Y-%m-%d %H:%M:%S')
+    return datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M:%S')
 
 def check_auth(username, password):
     """檢查用戶名和密碼是否正確"""
@@ -47,7 +91,7 @@ def requires_auth(f):
         auth = request.authorization
         
         if not auth:
-            print("沒有認證信息或認證格式錯誤")  # 調試日誌
+            print("沒有證信息或認證格式錯誤")  # 調試日誌
             return authenticate()
             
         print(f"收到認證請求 - 用戶名: {auth.username}")  # 調試日誌
@@ -75,17 +119,15 @@ def index():
 @app.route('/admin')
 @requires_auth
 def admin():
-    video_stats = []
-    for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-        if allowed_file(filename):
-            stats = videos.get(filename, {'votes': 0, 'views': 0})
-            video_stats.append({
-                'filename': filename,
-                'votes': stats.get('votes', 0),
-                'views': stats.get('views', 0),
-                'upload_time': os.path.getctime(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            })
-    video_stats.sort(key=lambda x: x['upload_time'], reverse=True)
+    # 從數據庫獲取影片列表
+    videos = Video.query.order_by(Video.upload_time.desc()).all()
+    video_stats = [{
+        'filename': video.filename,
+        'votes': video.votes,
+        'views': video.views,
+        'status': video.status,
+        'upload_time': video.upload_time
+    } for video in videos]
     return render_template('admin.html', videos=video_stats)
 
 @app.route('/delete/<filename>', methods=['POST'])
@@ -105,7 +147,7 @@ def delete_video(filename):
 # 在文件頂部添加 FFmpeg 相關配置
 FFMPEG_PARAMS = [
     '-vcodec', 'libx264',        # 使用 H.264 編碼
-    '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率越高）
+    '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率��高）
     '-preset', 'medium',         # 壓縮速度（可選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow）
     '-acodec', 'aac',            # 音頻編碼
     '-ar', '44100',              # 音頻採樣率
@@ -186,48 +228,65 @@ def upload_file():
         return jsonify({'error': f'文件大小超過限制（最大 {MAX_FILE_SIZE // (1024*1024)}MB）'}), 400
     
     try:
-        # 先保存原始文件到臨時目錄
-        temp_filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'temp_' + filename)
-        file.save(temp_filepath)
+        # 保存原始文件
+        original_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(original_path)
         
-        # 壓縮後的文件路徑
-        compressed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        # 創建新的影片記錄
+        video = Video(
+            filename=filename,
+            title=os.path.splitext(filename)[0],
+            status=VIDEO_STATUS['UPLOADED'],
+            original_path=original_path,
+            compressed_path=os.path.join(app.config['UPLOAD_FOLDER'], 'compressed_' + filename)
+        )
+        db.session.add(video)
+        db.session.commit()
         
-        # 進行壓縮
-        if compress_video(temp_filepath, compressed_filepath):
-            try:
-                # 刪除臨時文件
-                os.remove(temp_filepath)
-                
-                # 檢查壓縮後的文件大小
-                if os.path.getsize(compressed_filepath) > MAX_FILE_SIZE:
-                    os.remove(compressed_filepath)
-                    return jsonify({'error': '壓縮後文件仍然過大'}), 400
-                
-                # 初始化影片數據
-                videos[filename] = {'votes': 0, 'views': 0, 'voters': set()}
-                return jsonify({'success': True, 'filename': filename})
-                
-            except Exception as e:
-                # 如果在處理過程中出錯，清理文件
-                if os.path.exists(compressed_filepath):
-                    os.remove(compressed_filepath)
-                app.logger.error(f"處理壓縮文件時出錯: {str(e)}")
-                return jsonify({'error': '處理文件時發生錯誤'}), 500
-        else:
-            # 壓縮失敗，清理臨時文件
-            if os.path.exists(temp_filepath):
-                os.remove(temp_filepath)
-            return jsonify({'error': '影片壓縮失敗'}), 500
-            
+        # 啟動異步壓縮任務
+        compress_video_async(filename)
+        
+        return jsonify({'success': True, 'filename': filename})
+        
     except Exception as e:
+        db.session.rollback()
         # 清理所有臨時文件
-        if os.path.exists(temp_filepath):
-            os.remove(temp_filepath)
-        if os.path.exists(compressed_filepath):
-            os.remove(compressed_filepath)
+        if os.path.exists(original_path):
+            os.remove(original_path)
         app.logger.error(f"上傳文件時出錯: {str(e)}")
         return jsonify({'error': f'文件上傳失敗: {str(e)}'}), 500
+
+# 異步壓縮處理
+def compress_video_async(filename):
+    video_data = videos.get(filename)
+    if not video_data:
+        return
+        
+    try:
+        video_data['status'] = VIDEO_STATUS['COMPRESSING']
+        
+        # 進行壓縮
+        if compress_video(video_data['original_path'], video_data['compressed_path']):
+            video_data['status'] = VIDEO_STATUS['COMPRESSED']
+            
+            # 如果沒有人在看，直接替換文件
+            if not video_data['in_use']:
+                replace_with_compressed(filename)
+    except Exception as e:
+        app.logger.error(f"壓縮失敗: {str(e)}")
+        video_data['status'] = VIDEO_STATUS['UPLOADED']
+
+# 替換原始文件為壓縮版本
+def replace_with_compressed(filename):
+    video_data = videos.get(filename)
+    if not video_data or video_data['status'] != VIDEO_STATUS['COMPRESSED']:
+        return
+        
+    try:
+        os.replace(video_data['compressed_path'], video_data['original_path'])
+        video_data['compressed_path'] = ''
+    except Exception as e:
+        app.logger.error(f"替換文件失敗: {str(e)}")
 
 # 添加一個字典來追蹤每個 IP 的投票狀態
 user_votes = {}  # 格式: {ip: voted_filename}
@@ -235,35 +294,41 @@ user_votes = {}  # 格式: {ip: voted_filename}
 @app.route('/vote/<filename>', methods=['POST'])
 def vote(filename):
     user_ip = request.remote_addr
+    video = Video.query.filter_by(filename=filename).first()
     
-    if filename not in videos:
-        videos[filename] = {'votes': 0, 'views': 0, 'voters': set()}
+    if not video:
+        return jsonify({'error': 'Video not found'}), 404
     
-    # 檢查用戶是否已經投過票給其他影片
-    previously_voted_file = user_votes.get(user_ip)
+    # 檢查是否已投票
+    existing_vote = Vote.query.filter_by(
+        ip_address=user_ip
+    ).first()
     
-    # 如果用戶點擊的是已投票的影片，收回票
-    if previously_voted_file == filename:
-        videos[filename]['voters'].remove(user_ip)
-        videos[filename]['votes'] -= 1
-        user_votes.pop(user_ip)
+    if existing_vote and existing_vote.video_id == video.id:
+        # 收回投票
+        db.session.delete(existing_vote)
+        video.votes -= 1
         voted = False
     else:
-        # 如果用戶之前投給了其他影片，先收回那個票
-        if previously_voted_file:
-            videos[previously_voted_file]['voters'].remove(user_ip)
-            videos[previously_voted_file]['votes'] -= 1
+        # 如果之前投給其他影片，先收回
+        if existing_vote:
+            prev_video = Video.query.get(existing_vote.video_id)
+            if prev_video:
+                prev_video.votes -= 1
+            db.session.delete(existing_vote)
         
-        # 投票給新的影片
-        videos[filename]['voters'].add(user_ip)
-        videos[filename]['votes'] += 1
-        user_votes[user_ip] = filename
+        # 新增投票
+        new_vote = Vote(video_id=video.id, ip_address=user_ip)
+        db.session.add(new_vote)
+        video.votes += 1
         voted = True
     
+    db.session.commit()
+    
     return jsonify({
-        'votes': videos[filename]['votes'],
+        'votes': video.votes,
         'voted': voted,
-        'previousVote': previously_voted_file
+        'previousVote': existing_vote.video_id if existing_vote else None
     })
 
 @app.route('/view/<filename>', methods=['POST'])
@@ -275,6 +340,24 @@ def record_view(filename):
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    video = Video.query.filter_by(filename=filename).first()
+    if not video:
+        return 'File not found', 404
+        
+    video.in_use = True
+    db.session.commit()
+    
+    @after_this_request
+    def after_request(response):
+        video.in_use = False
+        db.session.commit()
+        # 如果壓縮完成且沒有其他人在看，進行替換
+        if (video.status == VIDEO_STATUS['COMPRESSED'] and 
+            not video.in_use and 
+            video.compressed_path):
+            replace_with_compressed(filename)
+        return response
+    
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/check_upload_status')
@@ -287,32 +370,23 @@ def allowed_file(filename):
 @app.route('/videos')
 def get_videos():
     user_ip = request.remote_addr
-    video_files = []
+    videos = Video.query.order_by(Video.upload_time).all()
     
-    # 獲取當前用戶投票的影片
-    current_vote = user_votes.get(user_ip)
+    # 獲取當前用戶的投票
+    current_vote = Vote.query.filter_by(ip_address=user_ip).first()
     
-    files_with_time = []
-    for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-        if allowed_file(filename):
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            creation_time = os.path.getctime(file_path)
-            files_with_time.append((filename, creation_time))
-    
-    files_with_time.sort(key=lambda x: x[1])
-    
-    for filename, _ in files_with_time:
-        stats = videos.get(filename, {'votes': 0, 'views': 0, 'voters': set()})
-        title = os.path.splitext(filename)[0]
-        video_files.append({
-            'filename': filename,
-            'title': title,
-            'votes': stats.get('votes', 0),
-            'views': stats.get('views', 0),
-            'voted': filename == current_vote  # 檢查是否是當前用戶投票的影片
-        })
-    
-    return jsonify(video_files)
+    return jsonify([{
+        'filename': video.filename,
+        'title': video.title,
+        'votes': video.votes,
+        'views': video.views,
+        'status': video.status,
+        'voted': current_vote and current_vote.video_id == video.id
+    } for video in videos])
+
+# 初始化數據庫
+with app.app_context():
+    db.create_all()
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -403,6 +403,33 @@
         font-size: 18px;
         font-family: "Microsoft JhengHei", sans-serif;
       }
+
+      .processing-hint {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px 20px;
+        border-radius: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        z-index: 1010;
+      }
+
+      .processing-hint .loading-spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      .processing-hint .hint-text {
+        color: white;
+        font-size: 14px;
+      }
     </style>
   </head>
   <body>
@@ -612,6 +639,18 @@
 
         const video = document.createElement("video");
         video.src = `/uploads/${videos[index].filename}`;
+
+        // 根據影片狀態顯示不同的提示
+        if (videos[index].status === "compressing") {
+          const compressingHint = document.createElement("div");
+          compressingHint.className = "processing-hint";
+          compressingHint.innerHTML = `
+                <div class="loading-spinner"></div>
+                <div class="hint-text">影片優化處理中...</div>
+            `;
+          videoItem.appendChild(compressingHint);
+        }
+
         video.autoplay = true;
         video.muted = isMuted;
         video.playsInline = true;
