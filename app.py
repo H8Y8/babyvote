@@ -258,33 +258,39 @@ def upload_file():
 
 # 異步壓縮處理
 def compress_video_async(filename):
-    video_data = videos.get(filename)
-    if not video_data:
+    video = Video.query.filter_by(filename=filename).first()
+    if not video:
         return
         
     try:
-        video_data['status'] = VIDEO_STATUS['COMPRESSING']
+        # 更新狀態為壓縮中
+        video.status = VIDEO_STATUS['COMPRESSING']
+        db.session.commit()
         
         # 進行壓縮
-        if compress_video(video_data['original_path'], video_data['compressed_path']):
-            video_data['status'] = VIDEO_STATUS['COMPRESSED']
+        if compress_video(video.original_path, video.compressed_path):
+            # 更新狀態為壓縮完成
+            video.status = VIDEO_STATUS['COMPRESSED']
+            db.session.commit()
             
             # 如果沒有人在看，直接替換文件
-            if not video_data['in_use']:
+            if not video.in_use:
                 replace_with_compressed(filename)
     except Exception as e:
         app.logger.error(f"壓縮失敗: {str(e)}")
-        video_data['status'] = VIDEO_STATUS['UPLOADED']
+        video.status = VIDEO_STATUS['UPLOADED']
+        db.session.commit()
 
-# 替換原始文件為壓縮版本
+# 修改替換文件函數
 def replace_with_compressed(filename):
-    video_data = videos.get(filename)
-    if not video_data or video_data['status'] != VIDEO_STATUS['COMPRESSED']:
+    video = Video.query.filter_by(filename=filename).first()
+    if not video or video.status != VIDEO_STATUS['COMPRESSED']:
         return
         
     try:
-        os.replace(video_data['compressed_path'], video_data['original_path'])
-        video_data['compressed_path'] = ''
+        os.replace(video.compressed_path, video.original_path)
+        video.compressed_path = ''
+        db.session.commit()
     except Exception as e:
         app.logger.error(f"替換文件失敗: {str(e)}")
 
