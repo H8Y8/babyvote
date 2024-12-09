@@ -10,6 +10,9 @@ import unicodedata
 import re
 from flask_sqlalchemy import SQLAlchemy
 import sqlite3
+from config import VIDEO_STATUS, MAX_CONCURRENT_TASKS
+from tasks import compression_queue, redis_conn
+import psutil
 
 app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -44,13 +47,6 @@ class Vote(db.Model):
 
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# 添加影片狀態常量
-VIDEO_STATUS = {
-    'UPLOADED': 'uploaded',
-    'COMPRESSING': 'compressing',
-    'COMPRESSED': 'compressed'
-}
 
 # 修改影片數據結構
 videos = {
@@ -147,7 +143,7 @@ def delete_video(filename):
 # 在文件頂部添加 FFmpeg 相關配置
 FFMPEG_PARAMS = [
     '-vcodec', 'libx264',        # 使用 H.264 編碼
-    '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率��高）
+    '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率越高）
     '-preset', 'medium',         # 壓縮速度（可選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow）
     '-acodec', 'aac',            # 音頻編碼
     '-ar', '44100',              # 音頻採樣率
@@ -236,21 +232,24 @@ def upload_file():
         video = Video(
             filename=filename,
             title=os.path.splitext(filename)[0],
-            status=VIDEO_STATUS['UPLOADED'],
+            status=VIDEO_STATUS['UPLOADED'],  # 初始狀態為已上傳
             original_path=original_path,
             compressed_path=os.path.join(app.config['UPLOAD_FOLDER'], 'compressed_' + filename)
         )
         db.session.add(video)
         db.session.commit()
         
-        # 啟動異步壓縮任務
-        compress_video_async(filename)
+        # 將壓縮任務加入佇列
+        compression_queue.enqueue(
+            'tasks.compress_video_task',
+            filename,
+            job_timeout='1h'
+        )
         
         return jsonify({'success': True, 'filename': filename})
         
     except Exception as e:
         db.session.rollback()
-        # 清理所有臨時文件
         if os.path.exists(original_path):
             os.remove(original_path)
         app.logger.error(f"上傳文件時出錯: {str(e)}")
@@ -389,6 +388,28 @@ def get_videos():
         'status': video.status,
         'voted': current_vote and current_vote.video_id == video.id
     } for video in videos])
+
+@app.route('/compression_status')
+@requires_auth
+def compression_status():
+    # 獲取所有任務狀態
+    queued_jobs = compression_queue.get_jobs()  # 等待中的任務
+    started_jobs = compression_queue.started_job_registry.get_job_ids()  # 正在執行的任務
+    
+    # 獲取 CPU 使用率
+    cpu_percent = psutil.cpu_percent()
+    
+    status_data = {
+        'queued': [job.args[0] for job in queued_jobs],  # 獲取文件名
+        'processing': [
+            Video.query.filter_by(filename=job_id.split(':')[-1]).first().filename 
+            for job_id in started_jobs
+        ],
+        'cpu_usage': cpu_percent,
+        'max_concurrent': MAX_CONCURRENT_TASKS
+    }
+    
+    return jsonify(status_data)
 
 # 初始化數據庫
 with app.app_context():
