@@ -229,59 +229,41 @@ def upload_file():
         app.logger.error(f"上傳文件時出錯: {str(e)}")
         return jsonify({'error': f'文件上傳失敗: {str(e)}'}), 500
 
-@app.route('/videos')
-def get_videos():
-    video_files = []
-    
-    # 獲取所有影片的檔案和創建時間
-    files_with_time = []
-    for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-        if allowed_file(filename):
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            creation_time = os.path.getctime(file_path)
-            files_with_time.append((filename, creation_time))
-    
-    # 按創建時間排序，較新的排在後面
-    files_with_time.sort(key=lambda x: x[1])
-    
-    # 創建回傳的影片列表
-    for filename, _ in files_with_time:
-        stats = videos.get(filename, {'votes': 0, 'views': 0, 'voters': set()})
-        # 從檔名中提取標題（移除副檔名）
-        title = os.path.splitext(filename)[0]
-        video_files.append({
-            'filename': filename,
-            'title': title,  # 添加標題
-            'votes': stats.get('votes', 0),
-            'views': stats.get('views', 0),
-            'voted': False
-        })
-    
-    return jsonify(video_files)
+# 添加一個字典來追蹤每個 IP 的投票狀態
+user_votes = {}  # 格式: {ip: voted_filename}
 
 @app.route('/vote/<filename>', methods=['POST'])
 def vote(filename):
+    user_ip = request.remote_addr
+    
     if filename not in videos:
         videos[filename] = {'votes': 0, 'views': 0, 'voters': set()}
     
-    # 檢查用戶是否已經投過票
-    if 'voters' not in videos[filename]:
-        videos[filename]['voters'] = set()
-        
-    if request.remote_addr in videos[filename]['voters']:
-        # 如果已經投過票，收回投票
-        videos[filename]['voters'].remove(request.remote_addr)
+    # 檢查用戶是否已經投過票給其他影片
+    previously_voted_file = user_votes.get(user_ip)
+    
+    # 如果用戶點擊的是已投票的影片，收回票
+    if previously_voted_file == filename:
+        videos[filename]['voters'].remove(user_ip)
         videos[filename]['votes'] -= 1
+        user_votes.pop(user_ip)
         voted = False
     else:
-        # 如果還沒投過票，添加投票
-        videos[filename]['voters'].add(request.remote_addr)
+        # 如果用戶之前投給了其他影片，先收回那個票
+        if previously_voted_file:
+            videos[previously_voted_file]['voters'].remove(user_ip)
+            videos[previously_voted_file]['votes'] -= 1
+        
+        # 投票給新的影片
+        videos[filename]['voters'].add(user_ip)
         videos[filename]['votes'] += 1
+        user_votes[user_ip] = filename
         voted = True
     
     return jsonify({
         'votes': videos[filename]['votes'],
-        'voted': voted
+        'voted': voted,
+        'previousVote': previously_voted_file
     })
 
 @app.route('/view/<filename>', methods=['POST'])
@@ -301,6 +283,36 @@ def check_upload_status():
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/videos')
+def get_videos():
+    user_ip = request.remote_addr
+    video_files = []
+    
+    # 獲取當前用戶投票的影片
+    current_vote = user_votes.get(user_ip)
+    
+    files_with_time = []
+    for filename in os.listdir(app.config['UPLOAD_FOLDER']):
+        if allowed_file(filename):
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            creation_time = os.path.getctime(file_path)
+            files_with_time.append((filename, creation_time))
+    
+    files_with_time.sort(key=lambda x: x[1])
+    
+    for filename, _ in files_with_time:
+        stats = videos.get(filename, {'votes': 0, 'views': 0, 'voters': set()})
+        title = os.path.splitext(filename)[0]
+        video_files.append({
+            'filename': filename,
+            'title': title,
+            'votes': stats.get('votes', 0),
+            'views': stats.get('views', 0),
+            'voted': filename == current_vote  # 檢查是否是當前用戶投票的影片
+        })
+    
+    return jsonify(video_files)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

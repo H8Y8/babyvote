@@ -97,7 +97,6 @@
         left: 0;
         right: 0;
         padding: 20px;
-        background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
         z-index: 1002;
       }
 
@@ -622,9 +621,23 @@
 
             // 更新本地存儲的投票狀態
             videos[currentVideoIndex].votes = data.votes;
-            videos[currentVideoIndex].voted = data.voted; // 更新投票狀態
+            videos[currentVideoIndex].voted = data.voted;
 
-            // 更新按鈕狀態
+            // 如果之前有投票給其他影片，更新那個影片的狀態
+            if (
+              data.previousVote &&
+              data.previousVote !== videos[currentVideoIndex].filename
+            ) {
+              const previousIndex = videos.findIndex(
+                (v) => v.filename === data.previousVote
+              );
+              if (previousIndex !== -1) {
+                videos[previousIndex].votes -= 1;
+                videos[previousIndex].voted = false;
+              }
+            }
+
+            // 更新當前按鈕狀態
             if (data.voted) {
               voteBtn.classList.add("voted");
             } else {
