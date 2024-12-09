@@ -373,6 +373,36 @@
         color: white;
         font-size: 16px;
       }
+
+      .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.9);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 3000;
+      }
+
+      .loading-overlay .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+      }
+
+      .loading-overlay .loading-text {
+        color: white;
+        font-size: 18px;
+        font-family: "Microsoft JhengHei", sans-serif;
+      }
     </style>
   </head>
   <body>
@@ -423,6 +453,11 @@
           開始投票
         </button>
       </div>
+    </div>
+
+    <div id="loadingOverlay" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <div class="loading-text">影片載入中，請稍候...</div>
     </div>
 
     <div class="video-container" id="videoContainer">
@@ -488,7 +523,17 @@
       let currentVideoIndex = 0;
       let videos = [];
       let isPlaying = true;
-      let isMuted = true; // 添加全局靜音狀態
+      let isMuted = true;
+
+      // 顯示加載提示
+      function showLoading() {
+        document.getElementById("loadingOverlay").style.display = "flex";
+      }
+
+      // 隱藏加載提示
+      function hideLoading() {
+        document.getElementById("loadingOverlay").style.display = "none";
+      }
 
       // 檢查是否為第一次訪問
       function checkFirstVisit() {
@@ -510,11 +555,19 @@
 
       // 加載所有影片
       async function loadVideos() {
-        const response = await fetch("/videos");
-        videos = await response.json();
-        if (videos.length > 0) {
-          createProgressBars();
-          showVideo(0);
+        showLoading();
+        try {
+          const response = await fetch("/videos");
+          videos = await response.json();
+          if (videos.length > 0) {
+            createProgressBars();
+            showVideo(0);
+          }
+        } catch (error) {
+          console.error("載入影片失敗:", error);
+          alert("載入影片失敗，請重新整理頁面");
+        } finally {
+          hideLoading();
         }
       }
 
@@ -560,8 +613,23 @@
         const video = document.createElement("video");
         video.src = `/uploads/${videos[index].filename}`;
         video.autoplay = true;
-        video.muted = isMuted; // 使用全局靜音狀態
+        video.muted = isMuted;
         video.playsInline = true;
+
+        // 添加影片載入事件處理
+        video.onloadstart = () => {
+          showLoading();
+        };
+
+        video.oncanplay = () => {
+          hideLoading();
+        };
+
+        // 添加錯誤處理
+        video.onerror = () => {
+          hideLoading();
+          alert("影片載入失敗，請重新整理頁面");
+        };
 
         // 只在靜音狀態下顯示提示
         const playHint = document.createElement("div");
