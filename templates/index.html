@@ -430,6 +430,113 @@
         color: white;
         font-size: 14px;
       }
+
+      .rankings-container {
+        position: fixed;
+        bottom: 80px;
+        right: 20px;
+        z-index: 1000;
+      }
+
+      .rankings-btn {
+        background-color: rgba(0, 149, 246, 0.9);
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 24px;
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s ease;
+      }
+
+      .rankings-btn:hover {
+        background-color: rgba(0, 149, 246, 1);
+        transform: translateY(-2px);
+      }
+
+      .rankings-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.8);
+        z-index: 2000;
+      }
+
+      .rankings-content {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        width: 90%;
+        max-width: 600px;
+        max-height: 80vh;
+        overflow-y: auto;
+      }
+
+      .rankings-content h2 {
+        color: #333;
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      .ranking-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+        gap: 15px;
+      }
+
+      .ranking-number {
+        font-size: 24px;
+        font-weight: bold;
+        color: #666;
+        min-width: 40px;
+      }
+
+      .ranking-thumbnail {
+        width: 120px;
+        height: 67.5px;
+        object-fit: cover;
+        border-radius: 5px;
+      }
+
+      .ranking-info {
+        flex: 1;
+      }
+
+      .ranking-title {
+        font-size: 16px;
+        color: #333;
+        margin-bottom: 5px;
+      }
+
+      .ranking-votes {
+        font-size: 14px;
+        color: #666;
+      }
+
+      .top-3 .ranking-number {
+        color: gold;
+      }
+
+      .top-3:nth-child(2) .ranking-number {
+        color: silver;
+      }
+
+      .top-3:nth-child(3) .ranking-number {
+        color: #cd7f32;
+      }
     </style>
   </head>
   <body>
@@ -544,6 +651,20 @@
         </div>
         <button type="submit" class="btn-primary">上傳</button>
       </form>
+    </div>
+
+    <div class="rankings-container">
+      <button class="rankings-btn" onclick="showRankings()">📊 排行榜</button>
+    </div>
+
+    <div id="rankingsModal" class="rankings-modal">
+      <div class="rankings-content">
+        <button class="close-btn" onclick="closeRankings()">×</button>
+        <h2>影片排行榜</h2>
+        <div class="rankings-list" id="rankingsList">
+          <!-- 排行榜內容將動態插入這裡 -->
+        </div>
+      </div>
     </div>
 
     <script>
@@ -767,7 +888,7 @@
             `;
           } catch (error) {
             console.error("投票失敗:", error);
-            alert("投票失敗，請稍後再試");
+            alert("投票失敗，請稍後��試");
           }
         };
 
@@ -933,6 +1054,69 @@
           setTimeout(() => {
             loadingEl.style.display = "none";
           }, 1500);
+        }
+      };
+
+      // 添加一個變量來記錄打開排行榜前的播放狀態
+      let wasPlayingBeforeRankings = false;
+
+      async function showRankings() {
+        try {
+          // 儲存當前播放狀態並暫停影片
+          const currentVideo = document.querySelector(
+            ".video-item.active video"
+          );
+          if (currentVideo) {
+            wasPlayingBeforeRankings = !currentVideo.paused;
+            currentVideo.pause();
+          }
+
+          const response = await fetch("/rankings");
+          const rankings = await response.json();
+
+          const rankingsList = document.getElementById("rankingsList");
+          rankingsList.innerHTML = rankings
+            .map(
+              (item, index) => `
+              <div class="ranking-item ${index < 3 ? "top-3" : ""}">
+                  <div class="ranking-number">${item.rank}</div>
+                  <video class="ranking-thumbnail" src="${
+                    item.thumbnail
+                  }" preload="metadata"></video>
+                  <div class="ranking-info">
+                      <div class="ranking-title">${item.title}</div>
+                      <div class="ranking-votes">👍 ${item.votes} 票</div>
+                  </div>
+              </div>
+          `
+            )
+            .join("");
+
+          document.getElementById("rankingsModal").style.display = "block";
+        } catch (error) {
+          console.error("獲取排行榜失敗:", error);
+          alert("獲取排行榜失敗，請稍後再試");
+        }
+      }
+
+      function closeRankings() {
+        document.getElementById("rankingsModal").style.display = "none";
+
+        // 如果之前是播放狀態，恢復播放
+        if (wasPlayingBeforeRankings) {
+          const currentVideo = document.querySelector(
+            ".video-item.active video"
+          );
+          if (currentVideo) {
+            currentVideo.play();
+          }
+        }
+      }
+
+      // 點擊彈窗外部關閉
+      document.getElementById("rankingsModal").onclick = function (event) {
+        if (event.target === this) {
+          closeRankings();
         }
       };
     </script>

@@ -417,6 +417,22 @@ def compression_status():
     
     return jsonify(status_data)
 
+@app.route('/rankings')
+def get_rankings():
+    # 獲取按投票數排序的前 10 個影片
+    top_videos = Video.query.order_by(Video.votes.desc()).limit(10).all()
+    
+    rankings = [{
+        'rank': index + 1,
+        'id': video.id,
+        'filename': video.filename,
+        'title': video.title,
+        'votes': video.votes,
+        'thumbnail': f'/uploads/{video.filename}#t=0.1'  # 使用影片第 0.1 秒作為縮圖
+    } for index, video in enumerate(top_videos)]
+    
+    return jsonify(rankings)
+
 # 初始化數據庫
 with app.app_context():
     db.create_all()
