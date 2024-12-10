@@ -102,11 +102,13 @@
 
       .video-controls {
         position: absolute;
-        bottom: 80px;
-        left: 0;
+        bottom: 20px;
+        left: 20px;
         right: 0;
         padding: 20px;
         z-index: 1002;
+        display: flex;
+        justify-content: flex-start;
       }
 
       .navigation-controls {
@@ -189,13 +191,13 @@
         right: 0;
         display: flex;
         gap: 4px;
-        padding: 10px;
+        padding: 15px;
         z-index: 1000;
       }
 
       .progress-item {
         flex: 1;
-        height: 2px;
+        height: 4px;
         background-color: rgba(255, 255, 255, 0.3);
         position: relative;
       }
@@ -401,18 +403,17 @@
       }
 
       .loading-overlay .loading-spinner {
-        width: 50px;
-        height: 50px;
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3498db;
-        border-radius: 50%;
+        width: 60px;
+        height: 60px;
+        border-width: 6px;
         animation: spin 1s linear infinite;
         margin-bottom: 20px;
       }
 
       .loading-overlay .loading-text {
         color: white;
-        font-size: 18px;
+        font-size: 20px;
+        margin-top: 20px;
         font-family: "Microsoft JhengHei", sans-serif;
       }
 
@@ -566,8 +567,15 @@
         }
 
         .video-controls {
-          bottom: 100px;
-          padding: 30px;
+          padding: 20px;
+          left: 20px;
+        }
+
+        .vote-btn {
+          margin-bottom: 0;
+          min-height: 56px;
+          display: flex;
+          align-items: center;
         }
       }
     </style>
@@ -891,6 +899,7 @@
             `;
 
         voteBtn.onclick = async (event) => {
+          addHapticFeedback();
           event.stopPropagation();
           try {
             const response = await fetch(`/vote/${videos[index].filename}`, {
@@ -980,7 +989,7 @@
         const progressBars = document.querySelectorAll(".progress-item");
         progressBars.forEach((bar, i) => {
           if (i < index) {
-            // 將之前的影片進度條都設已完成
+            // 將之前的影片進度條都設完成
             bar.className = "progress-item viewed";
             const progressBar = bar.querySelector(".progress-bar");
             progressBar.style.width = "100%";
@@ -997,7 +1006,7 @@
       function nextVideo() {
         if (videos.length <= 1) return;
 
-        // 將當前影片的進度條為��成
+        // 將當前影片的進度條為已完成
         const progressBars = document.querySelectorAll(".progress-item");
         const currentProgress = progressBars[currentVideoIndex];
         currentProgress.className = "progress-item viewed";
@@ -1071,7 +1080,7 @@
         progressEl.innerHTML = `
             <div class="loading-spinner"></div>
             <div style="font-size: 16px; margin: 10px 0;">影片上傳中...</div>
-            <small style="color: #999">請勿關閉視窗，上傳完成後���自動處理</small>
+            <small style="color: #999">請勿關閉視窗，上傳完成後將自動處理</small>
         `;
 
         try {
@@ -1189,7 +1198,7 @@
         isUserActive = true;
       }
 
-      // ���加用戶活動監聽
+      // 添加用戶活動監聽
       document.addEventListener("mousemove", updateActivityTime);
       document.addEventListener("keydown", updateActivityTime);
       document.addEventListener("touchstart", updateActivityTime);
@@ -1226,6 +1235,12 @@
           }
         }
       }, 30 * 1000); // 每30秒檢查一次
+
+      function addHapticFeedback() {
+        if ("vibrate" in navigator) {
+          navigator.vibrate(10); // 短暫震動
+        }
+      }
     </script>
   </body>
 </html>
