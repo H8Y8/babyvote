@@ -2,11 +2,19 @@
 <html lang="zh">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <link
       rel="icon"
       type="image/x-icon"
       href="{{ url_for('static', filename='favicon.ico') }}"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
     />
     <title>年度影片大比拚</title>
     <style>
@@ -37,16 +45,17 @@
       .upload-btn {
         background-color: rgba(0, 149, 246, 0.9);
         color: white;
-        padding: 12px 24px;
+        padding: 15px 30px;
         border: none;
         border-radius: 24px;
-        font-size: 16px;
+        font-size: 18px;
         cursor: pointer;
         display: flex;
         align-items: center;
         gap: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         transition: all 0.3s ease;
+        -webkit-tap-highlight-color: transparent;
       }
 
       .upload-btn:hover {
@@ -117,14 +126,15 @@
         color: white;
         border: none;
         border-radius: 50%;
-        width: 40px;
-        height: 40px;
+        width: 50px;
+        height: 50px;
         cursor: pointer;
         transition: all 0.3s ease;
-        font-size: 20px;
+        font-size: 24px;
         display: flex;
         align-items: center;
         justify-content: center;
+        -webkit-tap-highlight-color: transparent;
       }
 
       .nav-btn:hover {
@@ -146,15 +156,17 @@
       .vote-btn {
         background-color: #ff4757;
         color: white;
-        padding: 10px 20px;
+        padding: 15px 30px;
         border: none;
         border-radius: 20px;
-        font-size: 16px;
+        font-size: 18px;
         cursor: pointer;
         display: flex;
         align-items: center;
         gap: 8px;
         transition: background-color 0.3s;
+        min-width: 120px;
+        -webkit-tap-highlight-color: transparent;
       }
 
       .vote-btn.voted {
@@ -433,7 +445,7 @@
 
       .rankings-container {
         position: fixed;
-        bottom: 80px;
+        bottom: 100px;
         right: 20px;
         z-index: 1000;
       }
@@ -441,16 +453,17 @@
       .rankings-btn {
         background-color: rgba(0, 149, 246, 0.9);
         color: white;
-        padding: 12px 24px;
+        padding: 15px 30px;
         border: none;
         border-radius: 24px;
-        font-size: 16px;
+        font-size: 18px;
         cursor: pointer;
         display: flex;
         align-items: center;
         gap: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         transition: all 0.3s ease;
+        -webkit-tap-highlight-color: transparent;
       }
 
       .rankings-btn:hover {
@@ -536,6 +549,26 @@
 
       .top-3:nth-child(3) .ranking-number {
         color: #cd7f32;
+      }
+
+      @media (max-width: 768px) {
+        .nav-btn {
+          width: 60px;
+          height: 60px;
+          font-size: 28px;
+        }
+
+        .upload-btn,
+        .rankings-btn,
+        .vote-btn {
+          padding: 18px 36px;
+          font-size: 20px;
+        }
+
+        .video-controls {
+          bottom: 100px;
+          padding: 30px;
+        }
       }
     </style>
   </head>
@@ -696,9 +729,25 @@
       }
 
       // 在頁面加載時檢查
-      window.onload = function () {
+      window.onload = async function () {
         checkFirstVisit();
-        loadVideos();
+
+        // 先執行一次檢查和替換
+        try {
+          console.log("初始化時檢查待壓縮影片");
+          const response = await fetch("/check_pending_compression", {
+            method: "POST",
+          });
+          const data = await response.json();
+          if (data.processed > 0) {
+            console.log(`已處理 ${data.processed} 個待壓縮影片`);
+          }
+        } catch (error) {
+          console.error("初始檢查待壓縮影片失敗:", error);
+        }
+
+        // 然後載入影片列表
+        await loadVideos();
       };
 
       // 加載所有影片
@@ -888,7 +937,7 @@
             `;
           } catch (error) {
             console.error("投票失敗:", error);
-            alert("投票失敗，請稍後��試");
+            alert("投票失敗，請稍後再試");
           }
         };
 
@@ -906,9 +955,19 @@
         }
 
         // 影片結束時播放下一個
-        video.onended = () => {
+        video.onended = async () => {
           const progressBars = document.querySelectorAll(".progress-item");
           progressBars[currentVideoIndex].className = "progress-item viewed";
+
+          // 通知後端影片播放結束
+          try {
+            await fetch(`/video_ended/${videos[currentVideoIndex].filename}`, {
+              method: "POST",
+            });
+          } catch (error) {
+            console.error("通知影片結束失敗:", error);
+          }
+
           nextVideo();
         };
 
@@ -938,7 +997,7 @@
       function nextVideo() {
         if (videos.length <= 1) return;
 
-        // 將當前影片的進度條為完成
+        // 將當前影片的進度條為��成
         const progressBars = document.querySelectorAll(".progress-item");
         const currentProgress = progressBars[currentVideoIndex];
         currentProgress.className = "progress-item viewed";
@@ -1012,7 +1071,7 @@
         progressEl.innerHTML = `
             <div class="loading-spinner"></div>
             <div style="font-size: 16px; margin: 10px 0;">影片上傳中...</div>
-            <small style="color: #999">請勿關閉視窗，上傳完成後會自動處理</small>
+            <small style="color: #999">請勿關閉視窗，上傳完成後���自動處理</small>
         `;
 
         try {
@@ -1119,6 +1178,54 @@
           closeRankings();
         }
       };
+
+      // 添加活躍狀態追蹤
+      let lastActivityTime = Date.now();
+      let isUserActive = true;
+
+      // 更新用戶活躍時間
+      function updateActivityTime() {
+        lastActivityTime = Date.now();
+        isUserActive = true;
+      }
+
+      // ���加用戶活動監聽
+      document.addEventListener("mousemove", updateActivityTime);
+      document.addEventListener("keydown", updateActivityTime);
+      document.addEventListener("touchstart", updateActivityTime);
+
+      // 修改定時檢查的邏輯
+      setInterval(async () => {
+        // 如果超過 3 分鐘沒有活動，且當前沒有影片在播放
+        const inactiveTime = Date.now() - lastActivityTime;
+        const currentVideo = document.querySelector(".video-item.active video");
+        const isPlaying = currentVideo && !currentVideo.paused;
+
+        // 添加日誌來幫助調試
+        console.log("檢查狀態:", {
+          inactiveTime: Math.floor(inactiveTime / 1000), // 轉換為秒
+          isPlaying,
+          hasVideo: !!currentVideo,
+        });
+
+        if (inactiveTime > 3 * 60 * 1000 && !isPlaying) {
+          // 3分鐘
+          try {
+            console.log("開始檢查待壓縮影片");
+            const response = await fetch("/check_pending_compression", {
+              method: "POST",
+            });
+            const data = await response.json();
+            if (data.processed > 0) {
+              console.log(`已處理 ${data.processed} 個待壓縮影片`);
+              // 處理完成後重新載入影片列表
+              await loadVideos();
+            }
+          } catch (error) {
+            console.error("檢查待壓縮影片失敗:", error);
+          }
+        }
+      }, 30 * 1000); // 每30秒檢查一次
     </script>
   </body>
 </html>

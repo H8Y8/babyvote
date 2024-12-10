@@ -29,7 +29,7 @@ init_redis()  # 初始化 Redis 連接
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# 修改影片數據結構
+# 改影片數據結構
 
 # 添加日期格式化過濾器
 @app.template_filter('datetime')
@@ -183,7 +183,7 @@ def upload_file():
     
     file = request.files['video']
     if file.filename == '':
-        return jsonify({'error': '沒有選擇文件'}), 400
+        return jsonify({'error': '沒有選擇件'}), 400
     
     # 獲取用戶自定義的文件名
     custom_filename = request.form.get('custom_filename', '').strip()
@@ -280,7 +280,20 @@ def replace_with_compressed(filename):
         return
         
     try:
-        os.replace(video.compressed_path, video.original_path)
+        # 先刪除原始文件，再重命名壓縮文件
+        if os.path.exists(video.original_path):
+            try:
+                os.remove(video.original_path)
+            except Exception as e:
+                app.logger.error(f"刪除原始文件失敗: {str(e)}")
+                return
+                
+        try:
+            os.rename(video.compressed_path, video.original_path)
+        except Exception as e:
+            app.logger.error(f"重命名壓縮文件失敗: {str(e)}")
+            return
+            
         video.compressed_path = ''
         db.session.commit()
     except Exception as e:
@@ -345,22 +358,33 @@ def uploaded_file(filename):
     if not video:
         return 'File not found', 404
     
-    # 只記錄使用狀態，不增加觀看次數
+    # 標記影片正在使用中
     video.in_use = True
     db.session.commit()
     
     @after_this_request
     def after_request(response):
+        # 標記影片不再使用中
         video.in_use = False
         db.session.commit()
-        # 如果壓縮完成且沒有其他人在看，進行替換
-        if (video.status == VIDEO_STATUS['COMPRESSED'] and 
-            not video.in_use and 
-            video.compressed_path):
-            replace_with_compressed(filename)
         return response
     
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 添加新的路由來處理影片播放結束事件
+@app.route('/video_ended/<filename>', methods=['POST'])
+def video_ended(filename):
+    video = Video.query.filter_by(filename=filename).first()
+    if not video:
+        return jsonify({'error': 'Video not found'}), 404
+    
+    # 檢查是否可以替換文件
+    if (video.status == VIDEO_STATUS['COMPRESSED'] and 
+        not video.in_use and 
+        video.compressed_path):
+        replace_with_compressed(filename)
+    
+    return jsonify({'success': True})
 
 @app.route('/check_upload_status')
 def check_upload_status():
@@ -432,6 +456,24 @@ def get_rankings():
     } for index, video in enumerate(top_videos)]
     
     return jsonify(rankings)
+
+# 添加新的路由來檢查和處理待替換的影片
+@app.route('/check_pending_compression', methods=['POST'])
+def check_pending_compression():
+    try:
+        # 獲取所有已壓縮但尚未替換的影片
+        pending_videos = Video.query.filter_by(
+            status=VIDEO_STATUS['COMPRESSED'],
+            in_use=False
+        ).filter(Video.compressed_path != '').all()
+        
+        for video in pending_videos:
+            replace_with_compressed(video.filename)
+            
+        return jsonify({'success': True, 'processed': len(pending_videos)})
+    except Exception as e:
+        app.logger.error(f"檢查待替換影片時出錯: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
 # 初始化數據庫
 with app.app_context():
