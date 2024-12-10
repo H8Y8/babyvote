@@ -8,11 +8,10 @@ import json
 import os.path
 import unicodedata
 import re
-from flask_sqlalchemy import SQLAlchemy
-import sqlite3
+from extensions import db, compression_queue, init_redis
 from config import VIDEO_STATUS, MAX_CONCURRENT_TASKS
-from tasks import compression_queue, redis_conn
 import psutil
+from models import Video, Vote
 
 app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -24,31 +23,14 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 16MB 限制
 # 配置 SQLite 數據庫
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///videos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
-
-# 定義數據模型
-class Video(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    filename = db.Column(db.String(255), unique=True, nullable=False)
-    title = db.Column(db.String(255))
-    votes = db.Column(db.Integer, default=0)
-    views = db.Column(db.Integer, default=0)
-    status = db.Column(db.String(20), default='uploaded')
-    in_use = db.Column(db.Boolean, default=False)
-    original_path = db.Column(db.String(255))
-    compressed_path = db.Column(db.String(255))
-    upload_time = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Vote(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    video_id = db.Column(db.Integer, db.ForeignKey('video.id'))
-    ip_address = db.Column(db.String(50))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+db.init_app(app)
+init_redis()  # 初始化 Redis 連接
 
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # 修改影片數據結構
+
 videos = {
     # 'filename': {
     #     'votes': 0,
@@ -130,21 +112,39 @@ def admin():
 @requires_auth
 def delete_video(filename):
     try:
+        # 先從數據庫中獲取影片記錄
+        video = Video.query.filter_by(filename=filename).first()
+        if not video:
+            return jsonify({'error': '影片記錄不存在'}), 404
+
+        # 嘗試刪除實體文件
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         if os.path.exists(file_path):
             os.remove(file_path)
-            if filename in videos:
-                del videos[filename]
-            return jsonify({'success': True})
+        
+        # 如果有壓縮文件，也要刪除
+        if video.compressed_path and os.path.exists(video.compressed_path):
+            os.remove(video.compressed_path)
+        
+        # 刪除相關的投票記錄
+        Vote.query.filter_by(video_id=video.id).delete()
+        
+        # 從數據庫中刪除影片記錄
+        db.session.delete(video)
+        db.session.commit()
+        
+        return jsonify({'success': True})
+        
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    return jsonify({'error': 'File not found'}), 404
+        db.session.rollback()
+        app.logger.error(f"刪除影片失敗: {str(e)}")
+        return jsonify({'error': f'刪除失敗: {str(e)}'}), 500
 
 # 在文件頂部添加 FFmpeg 相關配置
 FFMPEG_PARAMS = [
     '-vcodec', 'libx264',        # 使用 H.264 編碼
     '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率越高）
-    '-preset', 'medium',         # 壓縮速度（可選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow）
+    '-preset', 'medium',         # 壓縮速度（可選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
     '-acodec', 'aac',            # 音頻編碼
     '-ar', '44100',              # 音頻採樣率
     '-b:a', '128k',              # 音頻比特率
@@ -218,7 +218,7 @@ def upload_file():
     # 檢查文件大小
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
-    file.seek(0)  # 重置文件指針到開始位置
+    file.seek(0)  # 重置文件指針到開始位
     
     if file_size > MAX_FILE_SIZE:
         return jsonify({'error': f'文件大小超過限制（最大 {MAX_FILE_SIZE // (1024*1024)}MB）'}), 400
@@ -232,19 +232,24 @@ def upload_file():
         video = Video(
             filename=filename,
             title=os.path.splitext(filename)[0],
-            status=VIDEO_STATUS['UPLOADED'],  # 初始狀態為已上傳
+            status=VIDEO_STATUS['UPLOADED'],
             original_path=original_path,
             compressed_path=os.path.join(app.config['UPLOAD_FOLDER'], 'compressed_' + filename)
         )
         db.session.add(video)
         db.session.commit()
         
-        # 將壓縮任務加入佇列
-        compression_queue.enqueue(
-            'tasks.compress_video_task',
-            filename,
-            job_timeout='1h'
-        )
+        # 檢查是否有可用的壓縮隊列
+        if compression_queue:
+            compression_queue.enqueue(
+                'tasks.compress_video_task',
+                filename,
+                job_timeout='1h'
+            )
+        else:
+            # 如果沒有 Redis，直接進行壓縮
+            from tasks import compress_video_task
+            compress_video_task(filename)
         
         return jsonify({'success': True, 'filename': filename})
         
@@ -338,17 +343,24 @@ def vote(filename):
 
 @app.route('/view/<filename>', methods=['POST'])
 def record_view(filename):
-    if filename not in videos:
-        videos[filename] = {'votes': 0, 'views': 0}
-    videos[filename]['views'] += 1
-    return jsonify({'views': videos[filename]['views']})
+    # 從數據庫獲取影片記錄
+    video = Video.query.filter_by(filename=filename).first()
+    if not video:
+        return jsonify({'error': 'Video not found'}), 404
+        
+    # 增加觀看次數
+    video.views += 1
+    db.session.commit()
+    
+    return jsonify({'views': video.views})
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     video = Video.query.filter_by(filename=filename).first()
     if not video:
         return 'File not found', 404
-        
+    
+    # 只記錄使用狀態，不增加觀看次數
     video.in_use = True
     db.session.commit()
     
@@ -392,21 +404,29 @@ def get_videos():
 @app.route('/compression_status')
 @requires_auth
 def compression_status():
+    # 如果沒有可用的壓縮隊列
+    if not compression_queue:
+        return jsonify({
+            'queued': [],
+            'processing': [],
+            'cpu_usage': psutil.cpu_percent(),
+            'max_concurrent': MAX_CONCURRENT_TASKS,
+            'mode': 'sync'  # 表示正在使用同步模式
+        })
+    
     # 獲取所有任務狀態
     queued_jobs = compression_queue.get_jobs()  # 等待中的任務
     started_jobs = compression_queue.started_job_registry.get_job_ids()  # 正在執行的任務
     
-    # 獲取 CPU 使用率
-    cpu_percent = psutil.cpu_percent()
-    
     status_data = {
-        'queued': [job.args[0] for job in queued_jobs],  # 獲取文件名
+        'queued': [job.args[0] for job in queued_jobs],
         'processing': [
             Video.query.filter_by(filename=job_id.split(':')[-1]).first().filename 
             for job_id in started_jobs
         ],
-        'cpu_usage': cpu_percent,
-        'max_concurrent': MAX_CONCURRENT_TASKS
+        'cpu_usage': psutil.cpu_percent(),
+        'max_concurrent': MAX_CONCURRENT_TASKS,
+        'mode': 'queue'  # 表示正在使用隊列模式
     }
     
     return jsonify(status_data)

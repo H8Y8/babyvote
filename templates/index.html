@@ -639,21 +639,23 @@
 
         const video = document.createElement("video");
         video.src = `/uploads/${videos[index].filename}`;
-
-        // 根據影片狀態顯示不同的提示
-        if (videos[index].status === "compressing") {
-          const compressingHint = document.createElement("div");
-          compressingHint.className = "processing-hint";
-          compressingHint.innerHTML = `
-                <div class="loading-spinner"></div>
-                <div class="hint-text">影片優化處理中...</div>
-            `;
-          videoItem.appendChild(compressingHint);
-        }
-
         video.autoplay = true;
         video.muted = isMuted;
         video.playsInline = true;
+
+        // 添加播放開始事件處理
+        video.onplay = async () => {
+          try {
+            // 記錄觀看次數
+            const response = await fetch(`/view/${videos[index].filename}`, {
+              method: "POST",
+            });
+            const data = await response.json();
+            videos[currentVideoIndex].views = data.views;
+          } catch (error) {
+            console.error("記錄觀看次數失敗:", error);
+          }
+        };
 
         // 添加影片載入事件處理
         video.onloadstart = () => {
