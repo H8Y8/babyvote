@@ -31,18 +31,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # 修改影片數據結構
 
-videos = {
-    # 'filename': {
-    #     'votes': 0,
-    #     'views': 0,
-    #     'voters': set(),
-    #     'status': 'uploaded',
-    #     'in_use': False,
-    #     'original_path': '',
-    #     'compressed_path': ''
-    # }
-}
-
 # 添加日期格式化過濾器
 @app.template_filter('datetime')
 def format_datetime(value):
@@ -154,7 +142,7 @@ FFMPEG_PARAMS = [
 def compress_video(input_path, output_path):
     """壓縮影片"""
     try:
-        # 確保輸出路徑包含副檔名
+        # 確保輸出路徑包含檔名
         if not output_path.lower().endswith(('.mp4', '.mov', '.avi')):
             output_path += '.mp4'  # 預設使用 mp4 格式
             
@@ -191,7 +179,7 @@ def secure_chinese_filename(filename):
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'video' not in request.files:
-        return jsonify({'error': '沒有影片文件'}), 400
+        return jsonify({'error': '沒有影文件'}), 400
     
     file = request.files['video']
     if file.filename == '':
@@ -298,9 +286,6 @@ def replace_with_compressed(filename):
     except Exception as e:
         app.logger.error(f"替換文件失敗: {str(e)}")
 
-# 添加一個字典來追蹤每個 IP 的投票狀態
-user_votes = {}  # 格式: {ip: voted_filename}
-
 @app.route('/vote/<filename>', methods=['POST'])
 def vote(filename):
     user_ip = request.remote_addr
@@ -393,6 +378,7 @@ def get_videos():
     current_vote = Vote.query.filter_by(ip_address=user_ip).first()
     
     return jsonify([{
+        'id': video.id,           # 添加 id
         'filename': video.filename,
         'title': video.title,
         'votes': video.votes,

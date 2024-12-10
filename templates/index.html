@@ -728,21 +728,28 @@
             });
             const data = await response.json();
 
-            // 更新本地存儲的投票狀態
+            // 更新當前影片的投票狀態
             videos[currentVideoIndex].votes = data.votes;
             videos[currentVideoIndex].voted = data.voted;
 
             // 如果之前有投票給其他影片，更新那個影片的狀態
-            if (
-              data.previousVote &&
-              data.previousVote !== videos[currentVideoIndex].filename
-            ) {
+            if (data.previousVote) {
+              // 找到之前投票的影片索引
               const previousIndex = videos.findIndex(
-                (v) => v.filename === data.previousVote
+                (v) => v.id === data.previousVote
               );
               if (previousIndex !== -1) {
-                videos[previousIndex].votes -= 1;
                 videos[previousIndex].voted = false;
+                videos[previousIndex].votes -= 1;
+
+                // 如果正在顯示之前投票的影片，也要更新其按鈕狀態
+                if (previousIndex === currentVideoIndex) {
+                  voteBtn.classList.remove("voted");
+                  voteBtn.innerHTML = `
+                      投票
+                      <span class="vote-count">${videos[previousIndex].votes}</span>
+                  `;
+                }
               }
             }
 
@@ -753,6 +760,7 @@
               voteBtn.classList.remove("voted");
             }
 
+            // 更新投票數顯示
             voteBtn.innerHTML = `
                 投票
                 <span class="vote-count">${data.votes}</span>
