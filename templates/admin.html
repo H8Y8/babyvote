@@ -188,6 +188,65 @@
       .task-list li::before {
         content: "🔄";
       }
+
+      .system-status {
+        background: #f8f9fa;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 15px;
+      }
+
+      .status-item {
+        background: white;
+        padding: 15px;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      .status-label {
+        font-weight: bold;
+        color: #666;
+        margin-bottom: 5px;
+      }
+
+      .status-value {
+        font-size: 1.2em;
+        color: #333;
+      }
+
+      .status-value.success {
+        color: #28a745;
+      }
+
+      .status-value.error {
+        color: #dc3545;
+      }
+
+      .action-button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.3s;
+      }
+
+      .action-button:hover {
+        background: #0056b3;
+      }
+
+      .action-button:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -221,6 +280,29 @@
             <ul id="queuedList" class="task-list"></ul>
           </div>
         </div>
+      </div>
+
+      <div class="system-status">
+        <h2>系統狀態</h2>
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="status-label">Redis 連接狀態</div>
+            <div id="redis-status" class="status-value">檢查中...</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">壓縮隊列長度</div>
+            <div id="queue-length" class="status-value">0</div>
+          </div>
+          <div class="status-item">
+            <div class="status-label">工作者數量</div>
+            <div id="workers-count" class="status-value">0</div>
+          </div>
+        </div>
+
+        <button id="process-compression" class="action-button">
+          處理待壓縮影片
+        </button>
+        <span id="compression-status"></span>
       </div>
 
       {% if videos %}
@@ -342,6 +424,71 @@
       // 每 5 秒更新一次狀態
       setInterval(updateCompressionStatus, 5000);
       updateCompressionStatus(); // 立即執行一次
+
+      // 更新系統狀態
+      async function updateSystemStatus() {
+        try {
+          const response = await fetch("/system_status");
+          const data = await response.json();
+
+          // 更新 Redis 狀態
+          const redisStatus = document.getElementById("redis-status");
+          redisStatus.textContent = data.redis_status.connected
+            ? "已連接"
+            : "未連接";
+          redisStatus.className =
+            "status-value " +
+            (data.redis_status.connected ? "success" : "error");
+
+          // 更新隊列長度
+          document.getElementById("queue-length").textContent =
+            data.redis_status.queue_length;
+
+          // 更新工作者數量
+          document.getElementById("workers-count").textContent =
+            data.redis_status.workers;
+        } catch (error) {
+          console.error("獲取系統狀態失敗:", error);
+        }
+      }
+
+      // 處理待壓縮影片
+      async function processCompression() {
+        const button = document.getElementById("process-compression");
+        const status = document.getElementById("compression-status");
+
+        button.disabled = true;
+        status.textContent = "處理中...";
+
+        try {
+          const response = await fetch("/process_compression", {
+            method: "POST",
+          });
+          const data = await response.json();
+
+          if (data.success) {
+            status.textContent = `成功處理 ${data.processed}/${data.total} 個影片`;
+          } else {
+            status.textContent = "處理失敗: " + data.error;
+          }
+        } catch (error) {
+          status.textContent = "處理出錯: " + error;
+        } finally {
+          button.disabled = false;
+          setTimeout(() => {
+            status.textContent = "";
+          }, 5000);
+        }
+      }
+
+      // 定期更新系統狀態
+      updateSystemStatus();
+      setInterval(updateSystemStatus, 5000);
+
+      // 綁定按鈕事件
+      document
+        .getElementById("process-compression")
+        .addEventListener("click", processCompression);
     </script>
   </body>
 </html>

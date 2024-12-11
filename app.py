@@ -4,14 +4,16 @@ from werkzeug.utils import secure_filename
 from functools import wraps
 from datetime import datetime
 import subprocess
-import json
 import os.path
 import unicodedata
 import re
-from extensions import db, compression_queue, init_redis
+from extensions import db, compression_queue, init_redis, redis_conn
 from config import VIDEO_STATUS, MAX_CONCURRENT_TASKS
 import psutil
 from models import Video, Vote
+from time import sleep
+from redis.exceptions import ConnectionError
+from rq import Worker
 
 app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -21,15 +23,47 @@ ALLOWED_EXTENSIONS = {'mp4', 'mov', 'avi'}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 16MB 限制
 
 # 配置 SQLite 數據庫
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///videos.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///instance/videos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ECHO'] = True  # 添加 SQL 日誌
 db.init_app(app)
-init_redis()  # 初始化 Redis 連接
+
+# 確保 instance 目錄存在
+os.makedirs('instance', exist_ok=True)
 
 # 確保上傳目錄存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# 改影片數據結構
+# 初始化數據庫
+with app.app_context():
+    try:
+        db.create_all()
+        print("數據庫表創建成功")
+    except Exception as e:
+        print(f"數據庫初始化錯誤: {str(e)}")
+
+# 在文件頂部添加
+MAX_REDIS_RETRIES = 5
+retry_count = 0
+redis_connected = False
+
+while retry_count < MAX_REDIS_RETRIES and not redis_connected:
+    try:
+        print(f"嘗試連接 Redis (第 {retry_count + 1} 次)")
+        if init_redis():
+            redis_connected = True
+            print("Redis 連接成功")
+            break
+        print(f"Redis 連接失敗，重試中 ({retry_count + 1}/{MAX_REDIS_RETRIES})")
+    except Exception as e:
+        print(f"連接過程出錯: {str(e)}")
+    retry_count += 1
+    sleep(5)  # 增加重試間隔
+
+if not redis_connected:
+    print("無法連接到 Redis，將使用同步模式")
+
+# 影片數據結構
 
 # 添加日期格式化過濾器
 @app.template_filter('datetime')
@@ -80,7 +114,34 @@ def requires_auth(f):
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    print("訪問主頁")
+    # 從數據庫獲取所有已上傳的影片
+    videos = Video.query.filter(
+        Video.status.in_([
+            VIDEO_STATUS['UPLOADED'],
+            VIDEO_STATUS['COMPRESSED']
+        ])
+    ).order_by(Video.upload_time.desc()).all()
+    
+    print(f"找到 {len(videos)} 個影片")
+    for video in videos:
+        print(f"影片: {video.filename}, 狀態: {video.status}")
+        # 檢查文件是否存在
+        if not os.path.exists(os.path.join(app.config['UPLOAD_FOLDER'], video.filename)):
+            print(f"警告: 文件 {video.filename} 不存在")
+    
+    # 格式化影片數據
+    video_list = [{
+        'id': video.id,
+        'filename': video.filename,
+        'title': video.title or video.filename,  # 如果沒有標題就用文件名
+        'votes': video.votes,
+        'views': video.views,
+        'upload_time': video.upload_time
+    } for video in videos]
+    
+    print(f"返回 {len(video_list)} 個影片數據")
+    return render_template('index.html', videos=video_list)
 
 @app.route('/admin')
 @requires_auth
@@ -110,7 +171,7 @@ def delete_video(filename):
         if os.path.exists(file_path):
             os.remove(file_path)
         
-        # 如果有壓縮文件，也要刪除
+        # 如果壓縮文件，也要刪除
         if video.compressed_path and os.path.exists(video.compressed_path):
             os.remove(video.compressed_path)
         
@@ -227,17 +288,8 @@ def upload_file():
         db.session.add(video)
         db.session.commit()
         
-        # 檢查是否有可用的壓縮隊列
-        if compression_queue:
-            compression_queue.enqueue(
-                'tasks.compress_video_task',
-                filename,
-                job_timeout='1h'
-            )
-        else:
-            # 如果沒有 Redis，直接進行壓縮
-            from tasks import compress_video_task
-            compress_video_task(filename)
+        # 只記錄上傳狀態，不立即壓縮
+        print(f"影片 {filename} 上傳完成，等待系統空閒時進行壓縮")
         
         return jsonify({'success': True, 'filename': filename})
         
@@ -299,45 +351,24 @@ def replace_with_compressed(filename):
     except Exception as e:
         app.logger.error(f"替換文件失敗: {str(e)}")
 
-@app.route('/vote/<filename>', methods=['POST'])
-def vote(filename):
-    user_ip = request.remote_addr
-    video = Video.query.filter_by(filename=filename).first()
-    
-    if not video:
-        return jsonify({'error': 'Video not found'}), 404
-    
-    # 檢查是否已投票
-    existing_vote = Vote.query.filter_by(
-        ip_address=user_ip
-    ).first()
-    
-    if existing_vote and existing_vote.video_id == video.id:
-        # 收回投票
-        db.session.delete(existing_vote)
-        video.votes -= 1
-        voted = False
-    else:
-        # 如果之前投給其他影片，先收回
-        if existing_vote:
-            prev_video = Video.query.get(existing_vote.video_id)
-            if prev_video:
-                prev_video.votes -= 1
-            db.session.delete(existing_vote)
+@app.route('/vote/<int:video_id>', methods=['POST'])
+def vote_video(video_id):
+    try:
+        video = Video.query.get_or_404(video_id)
         
-        # 新增投票
-        new_vote = Vote(video_id=video.id, ip_address=user_ip)
-        db.session.add(new_vote)
+        # 增加投票數
         video.votes += 1
-        voted = True
-    
-    db.session.commit()
-    
-    return jsonify({
-        'votes': video.votes,
-        'voted': voted,
-        'previousVote': existing_vote.video_id if existing_vote else None
-    })
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'votes': video.votes
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'error': str(e)
+        }), 500
 
 @app.route('/view/<filename>', methods=['POST'])
 def record_view(filename):
@@ -452,16 +483,16 @@ def get_rankings():
         'filename': video.filename,
         'title': video.title,
         'votes': video.votes,
-        'thumbnail': f'/uploads/{video.filename}#t=0.1'  # 使用影片第 0.1 秒作為縮圖
+        'thumbnail': f'/uploads/{video.filename}#t=0.1'  # 用影片第 0.1 秒作為縮圖
     } for index, video in enumerate(top_videos)]
     
     return jsonify(rankings)
 
-# 添加新的路由來檢查和處理待替換的影片
+# 添加新的路由來檢查和處理待替換���影片
 @app.route('/check_pending_compression', methods=['POST'])
 def check_pending_compression():
     try:
-        # 獲取所有已壓縮但尚未替換的影片
+        # 獲取所有已壓縮尚未替換的影片
         pending_videos = Video.query.filter_by(
             status=VIDEO_STATUS['COMPRESSED'],
             in_use=False
@@ -475,9 +506,189 @@ def check_pending_compression():
         app.logger.error(f"檢查待替換影片時出錯: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
-# 初始化數據庫
-with app.app_context():
-    db.create_all()
+@app.route('/system_status')
+def system_status():
+    try:
+        from extensions import get_redis, get_queue
+        
+        redis_conn = get_redis()
+        queue = get_queue()
+        
+        queue_jobs = []
+        queue_workers = 0
+        ping_success = False
+        error_message = None
+        
+        try:
+            if redis_conn:
+                ping_success = redis_conn.ping()
+                print(f"Redis ping 測試: {ping_success}")
+        except Exception as e:
+            error_message = f"Redis ping error: {str(e)}"
+            print(error_message)
+        
+        try:
+            if queue:
+                queue_jobs = queue.get_jobs()
+                queue_workers = len(queue.started_job_registry)
+                print(f"隊列狀態: 任務數={len(queue_jobs)}, 工作者數={queue_workers}")
+        except Exception as e:
+            error_message = f"Queue error: {str(e)}"
+            print(error_message)
+
+        redis_status = {
+            'connected': redis_conn is not None and ping_success,
+            'queue_length': len(queue_jobs),
+            'workers': queue_workers,
+            'ping_success': ping_success,
+            'error': error_message
+        }
+        
+        return jsonify({
+            'redis_status': redis_status,
+            'upload_folder': os.path.exists(app.config['UPLOAD_FOLDER']),
+            'instance_folder': os.path.exists('instance'),
+            'database': os.path.exists('instance/videos.db')
+        })
+    except Exception as e:
+        print(f"系統狀態檢查錯誤: {str(e)}")
+        return jsonify({
+            'error': str(e),
+            'redis_status': {
+                'connected': False,
+                'queue_length': 0,
+                'workers': 0,
+                'ping_success': False
+            }
+        })
+
+@app.route('/process_compression', methods=['POST'])
+def process_compression():
+    try:
+        if not compression_queue:
+            print("壓縮隊列未初始化")
+            return jsonify({
+                'error': 'Compression queue is not initialized'
+            }), 500
+            
+        # 檢查 worker 狀態
+        workers = Worker.all(connection=redis_conn)
+        if not workers:
+            print("沒有運行中的 worker")
+            return jsonify({
+                'error': 'No active workers found'
+            }), 500
+            
+        print(f"當前運行的 worker 數量: {len(workers)}")
+        
+        # 獲取所有待壓縮的影片
+        pending_videos = Video.query.filter_by(
+            status=VIDEO_STATUS['UPLOADED']
+        ).all()
+        
+        print(f"找到 {len(pending_videos)} 個待壓縮影片")
+        
+        processed = 0
+        for video in pending_videos:
+            try:
+                # 檢查文件是否存在
+                if not os.path.exists(video.original_path):
+                    print(f"原始文件不存在: {video.original_path}")
+                    continue
+                    
+                # 入隊前檢查任務是否已存在
+                existing_jobs = compression_queue.get_jobs()
+                if any(job.args[0] == video.filename for job in existing_jobs):
+                    print(f"影片 {video.filename} 已在隊列中")
+                    continue
+                
+                # 使用��列進行異步壓縮
+                job = compression_queue.enqueue(
+                    'tasks.compress_video_task',
+                    video.filename,
+                    job_timeout='1h'
+                )
+                
+                if not job:
+                    print(f"創建任務失敗: {video.filename}")
+                    continue
+                    
+                print(f"已將影片 {video.filename} 加入壓縮隊列，任務ID: {job.id}")
+                
+                # 更新影片狀態為壓縮中
+                video.status = VIDEO_STATUS['COMPRESSING']
+                db.session.commit()
+                
+                processed += 1
+                
+            except Exception as e:
+                print(f"處理影片 {video.filename} 時出錯: {str(e)}")
+                continue
+        
+        # 獲取隊列狀態
+        queue_status = {
+            'queued_jobs': len(compression_queue),
+            'failed_jobs': len(compression_queue.failed_job_registry),
+            'finished_jobs': len(compression_queue.finished_job_registry),
+            'started_jobs': len(compression_queue.started_job_registry)
+        }
+        print(f"隊列狀態: {queue_status}")
+        
+        return jsonify({
+            'success': True,
+            'processed': processed,
+            'total': len(pending_videos),
+            'queue_status': queue_status
+        })
+        
+    except Exception as e:
+        print(f"壓縮處理出錯: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/queue_status')
+def queue_status():
+    try:
+        if not compression_queue:
+            return jsonify({'error': 'Redis queue not available'})
+            
+        return jsonify({
+            'queued_jobs': len(compression_queue),
+            'failed_jobs': len(compression_queue.failed_job_registry),
+            'finished_jobs': len(compression_queue.finished_job_registry),
+            'started_jobs': len(compression_queue.started_job_registry),
+            'deferred_jobs': len(compression_queue.deferred_job_registry)
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/check_db')
+def check_db():
+    try:
+        # 檢查數據庫連接
+        db.session.execute('SELECT 1')
+        
+        # 獲取所有影片記錄
+        videos = Video.query.all()
+        
+        # 檢查上傳目錄中的文件
+        upload_files = os.listdir(app.config['UPLOAD_FOLDER'])
+        
+        return jsonify({
+            'database_connected': True,
+            'video_count': len(videos),
+            'videos': [{
+                'id': v.id,
+                'filename': v.filename,
+                'status': v.status,
+                'file_exists': os.path.exists(v.original_path)
+            } for v in videos],
+            'upload_files': upload_files
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'database_connected': False
+        })
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

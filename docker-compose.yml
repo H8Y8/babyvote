@@ -14,29 +14,71 @@ services:
       - ADMIN_PASSWORD=admin123
       - REDIS_URL=redis://redis:6379
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app-network
 
   redis:
     image: redis:alpine
+    command: >
+      redis-server
+      --bind 0.0.0.0
+      --protected-mode no
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - app-network
 
   worker:
     build: .
-    command: rq worker --url redis://redis:6379
+    command: >
+      bash -c "
+        echo 'Waiting for Redis...' &&
+        sleep 10 &&
+        echo 'Starting worker...' &&
+        rq worker compression
+        --url redis://redis:6379
+        --with-scheduler
+        --verbose
+        --worker-ttl 600
+        --job-monitoring-interval 30
+      "
     volumes:
       - ./uploads:/app/uploads
       - ./instance:/app/instance
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "rq", "info", "--url", "redis://redis:6379"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  app-network:
+    driver: bridge
 
 volumes:
   redis-data:
