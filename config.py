@@ -1,7 +1,8 @@
 VIDEO_STATUS = {
     'UPLOADED': 'uploaded',
     'COMPRESSING': 'compressing',
-    'COMPRESSED': 'compressed'
+    'COMPLETED': 'completed',
+    'ERROR': 'error'
 }
 
 MAX_CONCURRENT_TASKS = 2 

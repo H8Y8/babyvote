@@ -1,8 +1,43 @@
-uploads/
-instance/
-__pycache__/
-*.pyc
+# Git
 .git
-.env
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+
+# 虛擬環境
+venv
+ENV
+env
+
+# 數據庫
+instance/
+*.db
+
+# 上傳的文件
+uploads/*
+
+# IDE
+.idea
 .vscode
-.idea 
+*.swp
+*.swo
+
+# 系統文件
+.DS_Store
+Thumbs.db 

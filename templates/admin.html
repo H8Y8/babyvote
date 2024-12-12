@@ -50,15 +50,10 @@
         transition: transform 0.2s;
       }
 
-      .video-card:hover {
-        transform: translateY(-5px);
-      }
-
       .video-preview {
         width: 100%;
         height: 200px;
         object-fit: cover;
-        background-color: #f0f0f0;
       }
 
       .video-info {
@@ -108,202 +103,36 @@
         margin-bottom: 10px;
       }
 
-      .no-videos {
-        text-align: center;
-        padding: 40px;
-        color: #666;
-        font-size: 18px;
-      }
-
-      @media (max-width: 768px) {
-        .video-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      .compression-status {
-        margin-bottom: 30px;
-      }
-
-      .status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 20px;
-      }
-
-      .status-item {
-        background: white;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      }
-
-      .status-item h3 {
-        margin-bottom: 10px;
-        color: #666;
-        font-size: 16px;
-      }
-
-      .cpu-meter {
-        height: 20px;
-        background: #eee;
-        border-radius: 10px;
-        position: relative;
-        overflow: hidden;
-      }
-
-      .cpu-bar {
-        height: 100%;
-        background: linear-gradient(90deg, #4caf50, #ffc107);
-        width: 0%;
-        transition: width 0.3s ease;
-      }
-
-      .cpu-meter span {
-        position: absolute;
-        right: 10px;
-        top: 50%;
-        transform: translateY(-50%);
+      .status-badge {
+        padding: 4px 8px;
+        border-radius: 12px;
         font-size: 12px;
-        color: #333;
       }
 
-      .task-list {
-        list-style: none;
-        padding: 0;
-        margin: 0;
+      .status-uploaded {
+        background-color: #f1c40f;
+        color: #000;
       }
 
-      .task-list li {
-        padding: 8px;
-        margin-bottom: 5px;
-        background: #f5f5f5;
-        border-radius: 4px;
-        font-size: 14px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+      .status-compressing {
+        background-color: #3498db;
+        color: #fff;
       }
 
-      .task-list li::before {
-        content: "🔄";
+      .status-completed {
+        background-color: #2ecc71;
+        color: #fff;
       }
 
-      .system-status {
-        background: #f8f9fa;
-        padding: 20px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-      }
-
-      .status-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-bottom: 15px;
-      }
-
-      .status-item {
-        background: white;
-        padding: 15px;
-        border-radius: 6px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-      }
-
-      .status-label {
-        font-weight: bold;
-        color: #666;
-        margin-bottom: 5px;
-      }
-
-      .status-value {
-        font-size: 1.2em;
-        color: #333;
-      }
-
-      .status-value.success {
-        color: #28a745;
-      }
-
-      .status-value.error {
-        color: #dc3545;
-      }
-
-      .action-button {
-        background: #007bff;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: background 0.3s;
-      }
-
-      .action-button:hover {
-        background: #0056b3;
-      }
-
-      .action-button:disabled {
-        background: #ccc;
-        cursor: not-allowed;
+      .status-error {
+        background-color: #e74c3c;
+        color: #fff;
       }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>影片管理後台</h1>
-
-      <div
-        class="compression-status"
-        style="
-          margin-bottom: 30px;
-          padding: 20px;
-          background: #f8f9fa;
-          border-radius: 10px;
-        "
-      >
-        <h2 style="margin-bottom: 15px; color: #1a73e8">壓縮任務狀態</h2>
-        <div class="status-grid">
-          <div class="status-item">
-            <h3>CPU 使用率</h3>
-            <div class="cpu-meter">
-              <div class="cpu-bar" id="cpuBar"></div>
-              <span id="cpuPercent">0%</span>
-            </div>
-          </div>
-          <div class="status-item">
-            <h3>正在處理</h3>
-            <ul id="processingList" class="task-list"></ul>
-          </div>
-          <div class="status-item">
-            <h3>等待處理</h3>
-            <ul id="queuedList" class="task-list"></ul>
-          </div>
-        </div>
-      </div>
-
-      <div class="system-status">
-        <h2>系統狀態</h2>
-        <div class="status-grid">
-          <div class="status-item">
-            <div class="status-label">Redis 連接狀態</div>
-            <div id="redis-status" class="status-value">檢查中...</div>
-          </div>
-          <div class="status-item">
-            <div class="status-label">壓縮隊列長度</div>
-            <div id="queue-length" class="status-value">0</div>
-          </div>
-          <div class="status-item">
-            <div class="status-label">工作者數量</div>
-            <div id="workers-count" class="status-value">0</div>
-          </div>
-        </div>
-
-        <button id="process-compression" class="action-button">
-          處理待壓縮影片
-        </button>
-        <span id="compression-status"></span>
-      </div>
 
       {% if videos %}
       <div class="video-grid">
@@ -330,13 +159,9 @@
               </div>
               <div class="stat-item">
                 <span>📊 狀態:</span>
-                {% if video.status == 'uploaded' %}
-                <span style="color: blue">已上傳</span>
-                {% elif video.status == 'compressing' %}
-                <span style="color: orange">壓縮中</span>
-                {% elif video.status == 'compressed' %}
-                <span style="color: green">已壓縮完成</span>
-                {% endif %}
+                <span class="status-badge status-{{ video.status }}"
+                  >{{ STATUS_MAP[video.status] }}</span
+                >
               </div>
             </div>
             <button
@@ -355,6 +180,13 @@
     </div>
 
     <script>
+      const STATUS_MAP = {
+        uploaded: "已上傳",
+        compressing: "壓縮中",
+        completed: "已壓縮",
+        error: "處理失敗",
+      };
+
       async function deleteVideo(filename) {
         if (!confirm("確定要刪除這個影片嗎？")) return;
 
@@ -368,11 +200,8 @@
             videoCard.style.opacity = "0";
             setTimeout(() => {
               videoCard.remove();
-
-              // 檢查是否還有影片
-              const videoGrid = document.querySelector(".video-grid");
-              if (videoGrid.children.length === 0) {
-                location.reload(); // 重新加載頁面以顯示無影片信息
+              if (document.querySelector(".video-grid").children.length === 0) {
+                location.reload();
               }
             }, 300);
           } else {
@@ -395,100 +224,6 @@
           this.currentTime = 0;
         });
       });
-
-      function updateCompressionStatus() {
-        fetch("/compression_status")
-          .then((response) => response.json())
-          .then((data) => {
-            // 更新 CPU 使用率
-            const cpuBar = document.getElementById("cpuBar");
-            const cpuPercent = document.getElementById("cpuPercent");
-            cpuBar.style.width = `${data.cpu_usage}%`;
-            cpuPercent.textContent = `${data.cpu_usage}%`;
-
-            // 更新正在處理的任務
-            const processingList = document.getElementById("processingList");
-            processingList.innerHTML =
-              data.processing
-                .map((filename) => `<li>${filename}</li>`)
-                .join("") || '<li style="color:#666">無正在處理的任務</li>';
-
-            // 更新等待處理的任務
-            const queuedList = document.getElementById("queuedList");
-            queuedList.innerHTML =
-              data.queued.map((filename) => `<li>${filename}</li>`).join("") ||
-              '<li style="color:#666">無等待的任務</li>';
-          });
-      }
-
-      // 每 5 秒更新一次狀態
-      setInterval(updateCompressionStatus, 5000);
-      updateCompressionStatus(); // 立即執行一次
-
-      // 更新系統狀態
-      async function updateSystemStatus() {
-        try {
-          const response = await fetch("/system_status");
-          const data = await response.json();
-
-          // 更新 Redis 狀態
-          const redisStatus = document.getElementById("redis-status");
-          redisStatus.textContent = data.redis_status.connected
-            ? "已連接"
-            : "未連接";
-          redisStatus.className =
-            "status-value " +
-            (data.redis_status.connected ? "success" : "error");
-
-          // 更新隊列長度
-          document.getElementById("queue-length").textContent =
-            data.redis_status.queue_length;
-
-          // 更新工作者數量
-          document.getElementById("workers-count").textContent =
-            data.redis_status.workers;
-        } catch (error) {
-          console.error("獲取系統狀態失敗:", error);
-        }
-      }
-
-      // 處理待壓縮影片
-      async function processCompression() {
-        const button = document.getElementById("process-compression");
-        const status = document.getElementById("compression-status");
-
-        button.disabled = true;
-        status.textContent = "處理中...";
-
-        try {
-          const response = await fetch("/process_compression", {
-            method: "POST",
-          });
-          const data = await response.json();
-
-          if (data.success) {
-            status.textContent = `成功處理 ${data.processed}/${data.total} 個影片`;
-          } else {
-            status.textContent = "處理失敗: " + data.error;
-          }
-        } catch (error) {
-          status.textContent = "處理出錯: " + error;
-        } finally {
-          button.disabled = false;
-          setTimeout(() => {
-            status.textContent = "";
-          }, 5000);
-        }
-      }
-
-      // 定期更新系統狀態
-      updateSystemStatus();
-      setInterval(updateSystemStatus, 5000);
-
-      // 綁定按鈕事件
-      document
-        .getElementById("process-compression")
-        .addEventListener("click", processCompression);
     </script>
   </body>
 </html>
