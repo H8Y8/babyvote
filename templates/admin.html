@@ -163,6 +163,25 @@
       tr:hover {
         background-color: #f9f9f9;
       }
+
+      .delete-vote-btn {
+        background-color: #ff4757;
+        color: white;
+        border: none;
+        padding: 4px 12px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        transition: all 0.2s ease;
+      }
+
+      .delete-vote-btn:hover {
+        background-color: #ff6b81;
+      }
+
+      .delete-vote-btn:active {
+        transform: scale(0.95);
+      }
     </style>
   </head>
   <body>
@@ -222,15 +241,24 @@
               <th>投票影片</th>
               <th>影片 ID</th>
               <th>投票時間</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
             {% for record in vote_records %}
-            <tr>
+            <tr id="vote-{{ record.id }}">
               <td>{{ record.ip }}</td>
               <td>{{ record.video_title }}</td>
               <td>{{ record.video_id }}</td>
               <td>{{ record.timestamp|datetime }}</td>
+              <td>
+                <button
+                  class="delete-vote-btn"
+                  onclick="deleteVote({{ record.id }})"
+                >
+                  刪除
+                </button>
+              </td>
             </tr>
             {% endfor %}
           </tbody>
@@ -283,6 +311,31 @@
           this.currentTime = 0;
         });
       });
+
+      async function deleteVote(voteId) {
+        if (!confirm("確定要刪除這筆投票記錄嗎？")) return;
+
+        try {
+          const response = await fetch(`/delete_vote/${voteId}`, {
+            method: "POST",
+          });
+
+          if (response.ok) {
+            // 從 DOM 中移除該筆記錄
+            const row = document.getElementById(`vote-${voteId}`);
+            row.style.opacity = "0";
+            setTimeout(() => {
+              row.remove();
+            }, 300);
+          } else {
+            const data = await response.json();
+            alert(data.error || "刪除失敗");
+          }
+        } catch (error) {
+          console.error("Error:", error);
+          alert("刪除失敗，請稍後再試");
+        }
+      }
     </script>
   </body>
 </html>

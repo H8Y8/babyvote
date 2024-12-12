@@ -99,6 +99,7 @@ def admin():
         video = Video.query.get(vote.video_id)
         if video:
             vote_records.append({
+                'id': vote.id,
                 'ip': vote.ip_address,
                 'video_title': video.title,
                 'video_id': video.id,
@@ -154,7 +155,7 @@ def delete_video(filename):
 FFMPEG_PARAMS = [
     '-vcodec', 'libx264',        # 使用 H.264 編碼
     '-crf', '28',                # 壓縮質量（18-28 之間，數字越大壓縮率越高）
-    '-preset', 'medium',         # 壓縮速度（可選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
+    '-preset', 'medium',         # 壓縮速度（選：ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow
     '-acodec', 'aac',            # 音頻編碼
     '-ar', '44100',              # 音頻採樣率
     '-b:a', '128k',              # 音頻比特率
@@ -362,26 +363,39 @@ def vote(filename):
 
 @app.route('/view/<filename>', methods=['POST'])
 def record_view(filename):
-    video = Video.query.filter_by(filename=filename).first()
-    if not video:
-        return jsonify({'error': 'Video not found'}), 404
+    try:
+        video = Video.query.filter_by(filename=filename).first()
+        if not video:
+            app.logger.error(f"找不到影片: {filename}")
+            return jsonify({'error': 'Video not found'}), 404
+            
+        # 保留裝置指紋相關代碼，但不使用它來限制觀看次數
+        device_fingerprint = request.headers.get('X-Device-Fingerprint')
+        app.logger.info(f"收到觀看記錄請求: video_id={video.id}, fingerprint={device_fingerprint}")
         
-    user_ip = request.remote_addr
-    
-    # 檢查是否已經觀看過
-    existing_view = View.query.filter_by(
-        video_id=video.id,
-        ip_address=user_ip
-    ).first()
-    
-    if not existing_view:
-        # 新增觀看記錄
-        new_view = View(video_id=video.id, ip_address=user_ip)
-        db.session.add(new_view)
+        # 每次播放都記錄一次觀看
         video.views += 1
+        
+        # 仍然記錄觀看記錄，但不檢查是否重複
+        if device_fingerprint:
+            new_view = View(
+                video_id=video.id,
+                ip_address=device_fingerprint
+            )
+            db.session.add(new_view)
+            
         db.session.commit()
-    
-    return jsonify({'views': video.views})
+        app.logger.info(f"觀看記錄成功: video_id={video.id}, views={video.views}")
+        
+        return jsonify({
+            'success': True,
+            'views': video.views
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"記錄觀看次數失敗: {str(e)}")
+        return jsonify({'error': '記錄失敗'}), 500
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -476,6 +490,31 @@ def check_compression_status(filename):
         return jsonify({'status': 'error'})
     
     return jsonify({'status': video.status})
+
+@app.route('/delete_vote/<int:vote_id>', methods=['POST'])
+@requires_auth
+def delete_vote(vote_id):
+    try:
+        vote = Vote.query.get(vote_id)
+        if not vote:
+            return jsonify({'error': '找不到投票記錄'}), 404
+            
+        # 更新影片的投票數
+        video = Video.query.get(vote.video_id)
+        if video:
+            video.votes -= 1
+            
+        # 刪除投票記錄
+        db.session.delete(vote)
+        db.session.commit()
+        
+        app.logger.info(f"成功刪除投票記錄: vote_id={vote_id}, video_id={vote.video_id}")
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"刪除投票記錄失敗: {str(e)}")
+        return jsonify({'error': '刪除失敗'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

@@ -906,7 +906,7 @@
             introContainer.style.opacity = 0;
             setTimeout(() => {
               introContainer.classList.add("hidden");
-              // 接顯示影片，不需要���新加載
+              // 接顯示影片，不需要重新加載
               if (videos.length > 0) {
                 createProgressBars();
                 showVideo(currentVideoIndex);
@@ -918,28 +918,152 @@
 
       // 修改 loadVideos 函數
       async function loadVideos() {
-        // 如果已經預加載了影片，就不需重新加載
-        if (videos.length > 0) {
-          createProgressBars();
-          showVideo(currentVideoIndex);
-          return;
-        }
-
         try {
-          showLoading();
           const response = await fetch("/videos");
-          const data = await response.json();
-          videos = data;
+          videos = await response.json();
 
           if (videos.length > 0) {
             createProgressBars();
-            showVideo(currentVideoIndex);
+
+            // 創建影片元素
+            const videoContainer = document.querySelector(".video-container");
+            videos.forEach((videoData, index) => {
+              const videoItem = document.createElement("div");
+              videoItem.className = `video-item ${index === 0 ? "active" : ""}`;
+              videoItem.innerHTML = `
+                    <video playsinline loop>
+                        <source src="/uploads/${videoData.filename}" type="video/mp4">
+                    </video>
+                    <div class="video-info">
+                        <div class="video-title">${videoData.title}</div>
+                        <div class="video-stats">
+                            <span>👁️ ${videoData.views}</span>
+                        </div>
+                    </div>
+                `;
+              videoContainer.appendChild(videoItem);
+            });
+
+            // 初始化第一個影片
+            currentVideoIndex = 0;
+            const firstVideo = document.querySelector(
+              ".video-item.active video"
+            );
+
+            // 初始化投票按鈕
+            updateVoteButton(voteBtn, videos[0].voted, videos[0].votes);
+
+            // 載入第一個影片
+            loadVideo(0);
           }
         } catch (error) {
           console.error("載入影片失敗:", error);
-          alert("載入影片失敗，請重新整理頁面");
-        } finally {
-          hideLoading();
+        }
+      }
+
+      // 修改切換影片函數
+      function switchVideo(direction) {
+        const currentVideo = document.querySelector(".video-item.active video");
+        currentVideo.pause();
+
+        const items = document.querySelectorAll(".video-item");
+        items[currentVideoIndex].classList.remove("active");
+
+        currentVideoIndex =
+          (currentVideoIndex + direction + videos.length) % videos.length;
+        items[currentVideoIndex].classList.add("active");
+
+        // 載入新的影片
+        loadVideo(currentVideoIndex);
+
+        // 更新投票按鈕狀態
+        updateVoteButton(
+          voteBtn,
+          videos[currentVideoIndex].voted,
+          videos[currentVideoIndex].votes
+        );
+        updateProgressBar();
+      }
+
+      // 修改影片載入函數
+      function loadVideo(index) {
+        const videoElement = document.querySelector(".video-item.active video");
+        console.log("載入影片:", index);
+
+        // 重置觀看追蹤
+        viewTracking = {
+          startTime: null,
+          hasRecorded: false,
+          minViewDuration: 5,
+        };
+
+        // 移除舊的事件監聽器
+        const newVideo = videoElement.cloneNode(true);
+        videoElement.parentNode.replaceChild(newVideo, videoElement);
+
+        // 添加新的事件監聽器
+        newVideo.addEventListener("play", () => {
+          console.log("影片開始播放");
+          viewTracking.startTime = Date.now();
+        });
+
+        newVideo.addEventListener("timeupdate", () => {
+          if (
+            !viewTracking.hasRecorded &&
+            viewTracking.startTime &&
+            !newVideo.paused
+          ) {
+            const duration = (Date.now() - viewTracking.startTime) / 1000;
+            console.log("播放時間:", duration);
+
+            if (duration >= viewTracking.minViewDuration) {
+              console.log("記錄觀看");
+              recordView(videos[index].filename);
+              viewTracking.hasRecorded = true;
+            }
+          }
+        });
+
+        // 設置影片靜音狀態
+        newVideo.muted = true;
+
+        // 自動播放
+        newVideo.play().catch((error) => {
+          console.error("自動播放失敗:", error);
+        });
+      }
+
+      // 修改觀看記錄函數
+      async function recordView(filename) {
+        try {
+          const fingerprint = generateFingerprint();
+          console.log("發送觀看記錄:", filename, fingerprint);
+
+          const response = await fetch(`/view/${filename}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Device-Fingerprint": fingerprint,
+            },
+          });
+
+          const data = await response.json();
+          console.log("觀看記錄回應:", data);
+
+          if (response.ok) {
+            // 更新顯示
+            videos[currentVideoIndex].views = data.views;
+            const statsElement = document.querySelector(
+              ".video-item.active .video-stats span"
+            );
+            if (statsElement) {
+              statsElement.textContent = `👁️ ${data.views}`;
+            }
+          } else {
+            throw new Error(data.error || "記錄失敗");
+          }
+        } catch (error) {
+          console.error("記錄觀看次數失敗:", error);
         }
       }
 
@@ -1019,7 +1143,7 @@
         // 添加播放開始事件處理
         video.onplay = async () => {
           try {
-            // 記錄觀看次數
+            // ���錄觀看次數
             const response = await fetch(`/view/${videos[index].filename}`, {
               method: "POST",
             });
@@ -1030,7 +1154,7 @@
           }
         };
 
-        // ���在靜音狀態下顯示提示
+        // 在靜音狀態下顯示提示
         const playHint = document.createElement("div");
         playHint.className = "play-hint";
         playHint.innerHTML = `

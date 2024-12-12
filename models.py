@@ -24,6 +24,9 @@ class Vote(db.Model):
 
 class View(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    video_id = db.Column(db.Integer, db.ForeignKey('video.id'))
-    ip_address = db.Column(db.String(50))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow) 
+    video_id = db.Column(db.Integer, db.ForeignKey('video.id'), nullable=False)
+    ip_address = db.Column(db.String(100), nullable=False)  # 存儲裝置指紋
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<View {self.id} for video {self.video_id}>' 
