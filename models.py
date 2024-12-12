@@ -15,9 +15,12 @@ class Video(db.Model):
 
 class Vote(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    video_id = db.Column(db.Integer, db.ForeignKey('video.id'))
-    ip_address = db.Column(db.String(50))
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow) 
+    video_id = db.Column(db.Integer, db.ForeignKey('video.id'), nullable=False)
+    ip_address = db.Column(db.String(50), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    # 添加唯一約束，確保每個 IP 只能對同一個影片投一次票
+    __table_args__ = (db.UniqueConstraint('video_id', 'ip_address', name='unique_vote'),)
 
 class View(db.Model):
     id = db.Column(db.Integer, primary_key=True)

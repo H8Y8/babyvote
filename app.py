@@ -89,6 +89,22 @@ def admin():
     
     # 從數據庫獲取影片列表
     videos = Video.query.order_by(Video.upload_time.desc()).all()
+    
+    # 獲取所有投票記錄
+    votes = Vote.query.order_by(Vote.timestamp.desc()).all()
+    
+    # 整理投票記錄
+    vote_records = []
+    for vote in votes:
+        video = Video.query.get(vote.video_id)
+        if video:
+            vote_records.append({
+                'ip': vote.ip_address,
+                'video_title': video.title,
+                'video_id': video.id,
+                'timestamp': vote.timestamp
+            })
+    
     video_stats = [{
         'filename': video.filename,
         'votes': video.votes,
@@ -97,8 +113,10 @@ def admin():
         'upload_time': video.upload_time
     } for video in videos]
     
-    # 將 STATUS_MAP 傳遞給模板
-    return render_template('admin.html', videos=video_stats, STATUS_MAP=STATUS_MAP)
+    return render_template('admin.html', 
+                         videos=video_stats, 
+                         STATUS_MAP=STATUS_MAP,
+                         vote_records=vote_records)
 
 @app.route('/delete/<filename>', methods=['POST'])
 @requires_auth
@@ -167,7 +185,7 @@ def compress_video(input_path, output_path):
         return False
 
 def secure_chinese_filename(filename):
-    """自定義的安全檔��函數，支持中文"""
+    """自定義的安全檔數，支持中文"""
     # 將檔名分成名稱和副檔名
     name, ext = os.path.splitext(filename)
     
@@ -229,7 +247,7 @@ def upload_file():
         db.session.rollback()
         if os.path.exists(filepath):
             os.remove(filepath)
-        app.logger.error(f"上傳文件時出錯: {str(e)}")
+        app.logger.error(f"上傳文件時發生錯誤: {str(e)}")
         return jsonify({'error': f'文件上傳失敗: {str(e)}'}), 500
 
 # 異步壓縮處理
@@ -278,43 +296,69 @@ def compress_video_async(filename):
 
 @app.route('/vote/<filename>', methods=['POST'])
 def vote(filename):
-    user_ip = request.remote_addr
-    video = Video.query.filter_by(filename=filename).first()
+    # 使用瀏覽器指紋作為裝置識別
+    device_fingerprint = request.headers.get('X-Device-Fingerprint')
+    app.logger.info(f"收到投票請求: filename={filename}, fingerprint={device_fingerprint}")
     
+    if not device_fingerprint:
+        app.logger.error("無法獲取裝置指紋")
+        return jsonify({'error': '無法識別裝置'}), 400
+        
+    video = Video.query.filter_by(filename=filename).first()
     if not video:
+        app.logger.error(f"找不到影片: {filename}")
         return jsonify({'error': 'Video not found'}), 404
     
-    # 檢查是否已投票
-    existing_vote = Vote.query.filter_by(
-        ip_address=user_ip
-    ).first()
-    
-    if existing_vote and existing_vote.video_id == video.id:
-        # 收回投票
-        db.session.delete(existing_vote)
-        video.votes -= 1
-        voted = False
-    else:
-        # 如果之前給其他影片，先收回
-        if existing_vote:
-            prev_video = Video.query.get(existing_vote.video_id)
-            if prev_video:
-                prev_video.votes -= 1
-            db.session.delete(existing_vote)
+    try:
+        app.logger.info(f"檢查是否已投票: video_id={video.id}, fingerprint={device_fingerprint}")
+        # 檢查是否已經對這個影片投票
+        existing_vote = Vote.query.filter_by(
+            video_id=video.id,
+            ip_address=device_fingerprint
+        ).first()
         
-        # 新增投票
-        new_vote = Vote(video_id=video.id, ip_address=user_ip)
-        db.session.add(new_vote)
-        video.votes += 1
-        voted = True
-    
-    db.session.commit()
-    
-    return jsonify({
-        'votes': video.votes,
-        'voted': voted,
-        'previousVote': existing_vote.video_id if existing_vote else None
-    })
+        if existing_vote:
+            app.logger.info("取消現有投票")
+            # 如果已經投過這個影片，則取消投票
+            db.session.delete(existing_vote)
+            video.votes -= 1
+            voted = False
+            previous_vote_id = None
+        else:
+            app.logger.info("檢查是否投過其他影片")
+            # 檢查是否投過其他影片
+            previous_vote = Vote.query.filter_by(ip_address=device_fingerprint).first()
+            if previous_vote:
+                app.logger.info(f"取消之前的投票: video_id={previous_vote.video_id}")
+                # 取消之前的投票
+                prev_video = Video.query.get(previous_vote.video_id)
+                if prev_video:
+                    prev_video.votes -= 1
+                previous_vote_id = previous_vote.video_id
+                db.session.delete(previous_vote)
+            else:
+                previous_vote_id = None
+            
+            app.logger.info("新增投票")
+            # 新增投票
+            new_vote = Vote(video_id=video.id, ip_address=device_fingerprint)
+            db.session.add(new_vote)
+            video.votes += 1
+            voted = True
+        
+        db.session.commit()
+        app.logger.info(f"投票成功: votes={video.votes}, voted={voted}")
+        
+        return jsonify({
+            'votes': video.votes,
+            'voted': voted,
+            'previousVote': previous_vote_id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"投票失敗: {str(e)}")
+        return jsonify({'error': '投票失敗'}), 500
 
 @app.route('/view/<filename>', methods=['POST'])
 def record_view(filename):
@@ -357,13 +401,15 @@ def allowed_file(filename):
 @app.route('/videos')
 def get_videos():
     user_ip = request.remote_addr
-    videos = Video.query.order_by(Video.upload_time).all()
     
     # 獲取當前用戶的投票
     current_vote = Vote.query.filter_by(ip_address=user_ip).first()
     
+    # 獲取所有已完成的影片
+    videos = Video.query.filter_by(status='completed').order_by(Video.upload_time).all()
+    
     return jsonify([{
-        'id': video.id,           # 添加 id
+        'id': video.id,
         'filename': video.filename,
         'title': video.title,
         'votes': video.votes,

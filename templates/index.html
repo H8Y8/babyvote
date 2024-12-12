@@ -722,7 +722,7 @@
       <div class="welcome-content">
         <h2>2024年度代表影片大賽</h2>
         <p>
-          在這裡有大家精心挑選的今年當中最經典的代表影片，謝謝你這這麼喜愛我們的寶貝請根據你的最愛投出最具代表性的一票吧。
+          在這裡有大家精心挑選的今年當中最經典的代表影片，謝謝你這這麼喜愛我們的寶貝，請根據你的最愛投出最具代表性的一票吧。
         </p>
         <button id="startButton" class="start-btn">開始投票</button>
       </div>
@@ -906,7 +906,7 @@
             introContainer.style.opacity = 0;
             setTimeout(() => {
               introContainer.classList.add("hidden");
-              // 接顯示影片，不需要重新加載
+              // 接顯示影片，不需要���新加載
               if (videos.length > 0) {
                 createProgressBars();
                 showVideo(currentVideoIndex);
@@ -918,7 +918,7 @@
 
       // 修改 loadVideos 函數
       async function loadVideos() {
-        // 如果已經預加載了影片，就不需��重新加載
+        // 如果已經預加載了影片，就不需重新加載
         if (videos.length > 0) {
           createProgressBars();
           showVideo(currentVideoIndex);
@@ -1026,11 +1026,11 @@
             const data = await response.json();
             videos[currentVideoIndex].views = data.views;
           } catch (error) {
-            console.error("���錄觀看次數敗:", error);
+            console.error("錄觀看次數敗:", error);
           }
         };
 
-        // 只在靜音狀態下顯示提示
+        // ���在靜音狀態下顯示提示
         const playHint = document.createElement("div");
         playHint.className = "play-hint";
         playHint.innerHTML = `
@@ -1045,7 +1045,7 @@
           if (!event.target.classList.contains("side-nav")) {
             if (video.muted) {
               video.muted = false;
-              isMuted = false; // 更新全局靜音狀態
+              isMuted = false; // 更新全局音狀態
               playHint.style.display = "none";
               isPlaying = true;
             } else {
@@ -1078,54 +1078,50 @@
                 <span class="vote-count">${videos[index].votes}</span>
             `;
 
-        voteBtn.onclick = async (event) => {
-          event.stopPropagation();
+        voteBtn.onclick = async () => {
           try {
-            const response = await fetch(`/vote/${videos[index].filename}`, {
-              method: "POST",
-            });
+            const fingerprint = generateFingerprint();
+            console.log("生成的指紋:", fingerprint);
+
+            const response = await fetch(
+              `/vote/${videos[currentVideoIndex].filename}`,
+              {
+                method: "POST",
+                headers: {
+                  "X-Device-Fingerprint": fingerprint,
+                  "Content-Type": "application/json",
+                },
+              }
+            );
+
             const data = await response.json();
+            console.log("投票回應:", data);
 
-            // 更新當前影片的投票狀態
-            videos[currentVideoIndex].votes = data.votes;
-            videos[currentVideoIndex].voted = data.voted;
+            if (response.ok) {
+              // 更新當前影片的投票數
+              videos[currentVideoIndex].votes = data.votes;
+              videos[currentVideoIndex].voted = data.voted;
 
-            // 如果之前有投票給其他影片，更新那個影片的狀態
-            if (data.previousVote) {
-              // 找到之前投票的影片索引
-              const previousIndex = videos.findIndex(
-                (v) => v.id === data.previousVote
-              );
-              if (previousIndex !== -1) {
-                videos[previousIndex].voted = false;
-                videos[previousIndex].votes -= 1;
-
-                // 如果正在顯示之前投票��影片，也要更新其按鈕狀態
-                if (previousIndex === currentVideoIndex) {
-                  voteBtn.classList.remove("voted");
-                  voteBtn.innerHTML = `
-                      投票
-                      <span class="vote-count">${videos[previousIndex].votes}</span>
-                  `;
+              // 如果有之前的投票，更新之前影片的狀態
+              if (data.previousVote) {
+                const previousIndex = videos.findIndex(
+                  (v) => v.id === data.previousVote
+                );
+                if (previousIndex !== -1) {
+                  videos[previousIndex].voted = false;
+                  videos[previousIndex].votes -= 1;
                 }
               }
-            }
 
-            // 更新當前按鈕狀態
-            if (data.voted) {
-              voteBtn.classList.add("voted");
+              // 更新按鈕狀態
+              updateVoteButton(voteBtn, data.voted, data.votes);
             } else {
-              voteBtn.classList.remove("voted");
+              console.error("投票失敗:", data.error);
+              throw new Error(data.error || "投票失敗");
             }
-
-            // 更新投票數顯示
-            voteBtn.innerHTML = `
-                投票
-                <span class="vote-count">${data.votes}</span>
-            `;
           } catch (error) {
-            console.error("投票失敗:", error);
-            alert("投票失敗，請稍後再試");
+            console.error("投票錯誤:", error);
+            alert(error.message || "投票失敗，請稍後再試");
           }
         };
 
@@ -1369,6 +1365,54 @@
             .querySelector(".rankings-container")
             .classList.toggle("collapsed");
         });
+
+      // 修改生成瀏覽器指紋的函數
+      function generateFingerprint() {
+        const components = {
+          userAgent: navigator.userAgent,
+          language: navigator.language,
+          platform: navigator.platform,
+          screenResolution: `${screen.width}x${screen.height}`,
+          colorDepth: screen.colorDepth,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          touchSupport: "ontouchstart" in window,
+          cookiesEnabled: navigator.cookieEnabled,
+          // 添加更多可靠的特徵
+          pixelRatio: window.devicePixelRatio,
+          orientation: screen.orientation ? screen.orientation.type : "unknown",
+          plugins: Array.from(navigator.plugins)
+            .map((p) => p.name)
+            .join(","),
+          doNotTrack: navigator.doNotTrack,
+          webdriver: navigator.webdriver,
+          languages: navigator.languages.join(","),
+        };
+
+        // 使用簡單的字串處理來生成指紋
+        const fingerprintStr = JSON.stringify(components);
+        let hash = 0;
+
+        for (let i = 0; i < fingerprintStr.length; i++) {
+          const char = fingerprintStr.charCodeAt(i);
+          hash = (hash << 5) - hash + char;
+          hash = hash & hash; // Convert to 32-bit integer
+        }
+
+        // 轉換為正數並轉為 16 進制
+        const positiveHash = Math.abs(hash).toString(16);
+        // 補足 32 位
+        return "0".repeat(32 - positiveHash.length) + positiveHash;
+      }
+
+      // 添加更新投票按鈕的函數
+      function updateVoteButton(button, voted, votes) {
+        if (voted) {
+          button.classList.add("voted");
+        } else {
+          button.classList.remove("voted");
+        }
+        button.innerHTML = `投票 <span class="vote-count">${votes}</span>`;
+      }
     </script>
   </body>
 </html>
