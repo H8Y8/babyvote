@@ -726,8 +726,79 @@
       let isPlaying = true;
       let isMuted = true;
       let isUploading = false;
+      let isNavigating = false;
+      let debounceTimer;
 
-      // ... (all existing functions remain unchanged until loadVideo) ...
+      function debounce(func, wait) {
+        return function() {
+          const context = this;
+          const args = arguments;
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => {
+            func.apply(context, args);
+          }, wait);
+        };
+      }
+
+      function navigateVideo(direction) {
+        if (isNavigating) return; // 如果正在切換中，則忽略新的請求
+        
+        isNavigating = true;
+        const videos = document.querySelectorAll('.video-item');
+        let currentIndex = Array.from(videos).findIndex(video => video.classList.contains('active'));
+        let nextIndex;
+        
+        if (direction === 'next') {
+          nextIndex = (currentIndex + 1) % videos.length;
+        } else {
+          nextIndex = (currentIndex - 1 + videos.length) % videos.length;
+        }
+        
+        // 隱藏當前影片
+        videos[currentIndex].classList.remove('active');
+        
+        // 顯示下一個影片
+        videos[nextIndex].classList.add('active');
+        
+        // 重置影片播放
+        const currentVideo = videos[currentIndex].querySelector('video');
+        const nextVideo = videos[nextIndex].querySelector('video');
+        
+        if (currentVideo) {
+          currentVideo.pause();
+          currentVideo.currentTime = 0;
+        }
+        
+        if (nextVideo) {
+          nextVideo.play().catch(error => {
+            console.error('Video playback error:', error);
+          });
+        }
+        
+        // 更新進度條
+        updateProgressBar(nextIndex);
+        
+        // 300ms 後重置導航狀態
+        setTimeout(() => {
+          isNavigating = false;
+        }, 300);
+      }
+
+      // 使用防抖包裝導航函數
+      const debouncedNavigate = debounce(navigateVideo, 200);
+
+      // 更新事件監聽器
+      document.querySelector('.prev-btn').addEventListener('click', () => debouncedNavigate('prev'));
+      document.querySelector('.next-btn').addEventListener('click', () => debouncedNavigate('next'));
+
+      // 添加鍵盤事件監聽
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') {
+          debouncedNavigate('prev');
+        } else if (e.key === 'ArrowRight') {
+          debouncedNavigate('next');
+        }
+      });
 
       function loadVideo(index) {
         const videoElement = document.querySelector(".video-item.active video");
