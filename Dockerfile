@@ -7,6 +7,9 @@ WORKDIR /app
 # 安裝系統依賴
 RUN apt-get update && apt-get install -y \
     ffmpeg \
+    libsm6 \
+    libxext6 \
+    libgl1-mesa-glx \
     && rm -rf /var/lib/apt/lists/*
 
 # 複製依賴文件
@@ -19,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 創建上傳目錄
-RUN mkdir -p uploads
+RUN mkdir -p uploads static/thumbnails
 
 # 設置環境變量
 ENV FLASK_APP=app.py
@@ -29,4 +32,4 @@ ENV FLASK_ENV=production
 EXPOSE 5000
 
 # 啟動命令
-CMD ["flask", "run", "--host=0.0.0.0"] 
+CMD ["python", "app.py"] 
