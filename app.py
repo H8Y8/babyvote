@@ -12,6 +12,7 @@ from extensions import db, compression_queue, init_redis
 from config import VIDEO_STATUS, MAX_CONCURRENT_TASKS
 import psutil
 from models import Video, Vote, View
+from utils.thumbnail import generate_thumbnail
 
 app = Flask(__name__, static_url_path='/static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -204,32 +205,29 @@ def secure_chinese_filename(filename):
 
 # 修改上傳路由
 @app.route('/upload', methods=['POST'])
-def upload_file():
-    if 'video' not in request.files:
-        return jsonify({'error': '沒有影片文件'}), 400
-    
-    file = request.files['video']
-    if file.filename == '':
-        return jsonify({'error': '沒有選擇文件'}), 400
-        
-    custom_filename = request.form.get('custom_filename', '').strip()
-    if not custom_filename:
-        return jsonify({'error': '請輸入檔案名稱'}), 400
-        
-    original_extension = file.filename.rsplit('.', 1)[1].lower() if '.' in file.filename else ''
-    if original_extension not in ALLOWED_EXTENSIONS:
-        return jsonify({'error': '不支持的文件類型'}), 400
-        
-    filename = secure_chinese_filename(f"{custom_filename}.{original_extension}")
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    
-    if os.path.exists(filepath):
-        return jsonify({'error': '檔案名稱已存在，請使用其他名稱'}), 400
-    
+def upload_video():
     try:
-        # 保存文件
-        file.save(filepath)
+        if 'video' not in request.files:
+            return jsonify({'success': False, 'error': '沒有上傳檔案'}), 400
+            
+        video = request.files['video']
+        custom_filename = request.form.get('custom_filename', '').strip()
         
+        if not custom_filename:
+            return jsonify({'success': False, 'error': '請提供檔案名稱'}), 400
+            
+        # 確保檔案名稱安全
+        filename = secure_filename(f"{custom_filename}.mp4")
+        
+        # 儲存影片
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        video.save(video_path)
+        
+        # 生成縮圖
+        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{filename}.jpg")
+        if not generate_thumbnail(video_path, thumbnail_path):
+            return jsonify({'success': False, 'error': '生成縮圖失敗'}), 500
+            
         # 創建影片記錄
         video = Video(
             filename=filename,
@@ -239,17 +237,31 @@ def upload_file():
         db.session.add(video)
         db.session.commit()
         
-        # 立即開始壓縮處理
+        # 開始壓縮處理
         compress_video_async(filename)
         
-        return jsonify({'success': True, 'filename': filename})
+        return jsonify({
+            'success': True,
+            'filename': filename
+        })
         
     except Exception as e:
-        db.session.rollback()
-        if os.path.exists(filepath):
-            os.remove(filepath)
-        app.logger.error(f"上傳文件時發生錯誤: {str(e)}")
-        return jsonify({'error': f'文件上傳失敗: {str(e)}'}), 500
+        if os.path.exists(video_path):
+            os.remove(video_path)
+        if os.path.exists(thumbnail_path):
+            os.remove(thumbnail_path)
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# 確保應用程式啟動時建立必要的目錄
+def create_required_directories():
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['THUMBNAIL_FOLDER'], exist_ok=True)
+
+# 在應用程式配置中加入縮圖目錄設定
+app.config['THUMBNAIL_FOLDER'] = os.path.join('static', 'thumbnails')
+
+# 應用程式啟動時建立目錄
+create_required_directories()
 
 # 異步壓縮處理
 def compress_video_async(filename):
@@ -416,7 +428,7 @@ def allowed_file(filename):
 def get_videos():
     user_ip = request.remote_addr
     
-    # 獲取當前用戶的投票
+    # 獲取���前用戶的投票
     current_vote = Vote.query.filter_by(ip_address=user_ip).first()
     
     # 獲取所有已完成的影片
@@ -499,7 +511,7 @@ def delete_vote(vote_id):
         if not vote:
             return jsonify({'error': '找不到投票記錄'}), 404
             
-        # 更新影片的投票數
+        # 更新片的投票數
         video = Video.query.get(vote.video_id)
         if video:
             video.votes -= 1
@@ -515,6 +527,49 @@ def delete_vote(vote_id):
         db.session.rollback()
         app.logger.error(f"刪除投票記錄失敗: {str(e)}")
         return jsonify({'error': '刪除失敗'}), 500
+
+# 新增縮圖存取路由
+@app.route('/thumbnails/<filename>')
+def serve_thumbnail(filename):
+    return send_from_directory(app.config['THUMBNAIL_FOLDER'], filename)
+
+# 新增批次生成縮圖的路由
+@app.route('/admin/generate_thumbnails', methods=['POST'])
+@requires_auth
+def generate_missing_thumbnails():
+    try:
+        # 獲取所有影片
+        videos = Video.query.all()
+        generated_count = 0
+        
+        for video in videos:
+            # 檢查縮圖是否存在
+            thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{video.filename}.jpg")
+            if not os.path.exists(thumbnail_path):
+                # 檢查原始影片是否存在
+                video_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
+                if os.path.exists(video_path):
+                    # 生成縮圖
+                    if generate_thumbnail(video_path, thumbnail_path):
+                        generated_count += 1
+                        app.logger.info(f"成功生成縮圖: {video.filename}")
+                    else:
+                        app.logger.error(f"生成縮圖失敗: {video.filename}")
+                else:
+                    app.logger.warning(f"找不到原始影片: {video.filename}")
+        
+        return jsonify({
+            'success': True,
+            'generated_count': generated_count,
+            'message': f'成功生成 {generated_count} 個縮圖'
+        })
+        
+    except Exception as e:
+        app.logger.error(f"批次生成縮圖時發生錯誤: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

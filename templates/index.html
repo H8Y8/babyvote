@@ -1392,7 +1392,7 @@
         // 顯示上傳中的提示
         showUploadProgress(`
             <div style="font-size: 16px; margin: 10px 0;">影片上傳中...</div>
-            <small style="color: #999">請勿關閉視窗，上傳完成後會自動處理</small>
+            <small style="color: #999">請勿關閉���窗，上傳完成後會自動處理</small>
         `);
 
         try {
@@ -1470,9 +1470,9 @@
               (video, index) => `
               <div class="ranking-item">
                   <span class="ranking-position">${index + 1}</span>
-                  <video class="ranking-thumbnail" src="/uploads/${
+                  <img class="ranking-thumbnail" src="/static/thumbnails/${
                     video.filename
-                  }" preload="metadata"></video>
+                  }.jpg" alt="${video.title}">
                   <span class="ranking-title">${video.title}</span>
                   <span class="ranking-votes">${video.votes} 票</span>
               </div>
@@ -1485,7 +1485,7 @@
       }
 
       // 每 5 秒更新一次排行榜
-      setInterval(updateRankings, 5000);
+      setInterval(updateRankings, 10000);
       // 初始化排行榜
       updateRankings();
 

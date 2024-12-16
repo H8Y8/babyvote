@@ -264,6 +264,12 @@
           </tbody>
         </table>
       </div>
+
+      <div class="admin-controls" style="margin: 20px 0">
+        <button onclick="generateMissingThumbnails()" class="btn btn-primary">
+          生成缺失的縮圖
+        </button>
+      </div>
     </div>
 
     <script>
@@ -334,6 +340,25 @@
         } catch (error) {
           console.error("Error:", error);
           alert("刪除失敗，請稍後再試");
+        }
+      }
+
+      async function generateMissingThumbnails() {
+        try {
+          const response = await fetch("/admin/generate_thumbnails", {
+            method: "POST",
+          });
+          const data = await response.json();
+
+          if (data.success) {
+            alert(`成功生成 ${data.generated_count} 個縮圖`);
+            location.reload();
+          } else {
+            alert("生成縮圖失敗: " + data.error);
+          }
+        } catch (error) {
+          alert("生成縮圖時發生錯誤");
+          console.error("Error:", error);
         }
       }
     </script>
