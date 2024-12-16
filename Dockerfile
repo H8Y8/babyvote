@@ -22,8 +22,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 創建上傳目錄
-RUN mkdir -p uploads static/thumbnails
-
+RUN mkdir -p uploads static/thumbnails instance
+VOLUME ["/app/uploads", "/app/static/thumbnails", "/app/instance"]
 # 設置環境變量
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production

@@ -547,7 +547,7 @@
 
       .ranking-thumbnail {
         width: 60px;
-        height: 40px;
+        height: 107px;
         object-fit: cover;
         border-radius: 4px;
         background-color: rgba(255, 255, 255, 0.1);
@@ -1166,14 +1166,24 @@
 
         // 修改點擊事件處理
         videoItem.onclick = (event) => {
+          // 檢查是否點擊了控制元素
+          if (
+            event.target.closest(".vote-btn") ||
+            event.target.closest(".upload-btn") ||
+            event.target.closest(".rankings-container") ||
+            event.target.closest(".upload-form-container")
+          ) {
+            return;
+          }
+
+          // 如果點擊的不是側邊導航區域
           if (!event.target.classList.contains("side-nav")) {
             if (video.muted) {
               video.muted = false;
-              isMuted = false; // 更新全局音狀態
+              isMuted = false;
               playHint.style.display = "none";
               isPlaying = true;
             } else {
-              // 如果不是靜音狀態，則切換播放/暫停
               if (video.paused) {
                 video.play();
                 isPlaying = true;
@@ -1240,12 +1250,14 @@
               // 更新按鈕狀態
               updateVoteButton(voteBtn, data.voted, data.votes);
 
-              // 不要重新載入影片，只更新投票狀態
+              // 確保當前影片繼續播放
               const currentVideo = document.querySelector(
                 ".video-item.active video"
               );
-              if (currentVideo.paused) {
-                currentVideo.play();
+              if (currentVideo && currentVideo.paused) {
+                currentVideo.play().catch((error) => {
+                  console.error("播放失敗:", error);
+                });
               }
             } else {
               console.error("投票失敗:", data.error);
@@ -1263,11 +1275,18 @@
         videoItem.appendChild(controls);
         videoContainer.appendChild(videoItem);
 
-        // 修改初始播放狀態
-        if (!isPlaying) {
-          video.pause();
+        // 修改初���播放狀態
+        if (isPlaying) {
+          video.play().catch((error) => {
+            console.error("自動播放失敗:", error);
+            // 如果自動播放失敗，設置為靜音並再次嘗試播放
+            video.muted = true;
+            video.play().catch((error) => {
+              console.error("靜音自動播放也失敗:", error);
+            });
+          });
         } else {
-          video.play();
+          video.pause();
         }
 
         // 影片結束時播放下一個
@@ -1392,7 +1411,7 @@
         // 顯示上傳中的提示
         showUploadProgress(`
             <div style="font-size: 16px; margin: 10px 0;">影片上傳中...</div>
-            <small style="color: #999">請勿關閉���窗，上傳完成後會自動處理</small>
+            <small style="color: #999">請勿關閉關窗，上傳完成後會自動處理</small>
         `);
 
         try {
@@ -1419,21 +1438,22 @@
 
               if (status === "completed") {
                 showUploadProgress(`
-                        <div style="color: #2ecc71; font-size: 40px; margin: 10px 0;">✓</div>
-                        <div style="font-size: 16px;">處理完成！</div>
-                        <small style="color: #999">頁面即將重新整理</small>
-                    `);
+                    <div style="color: #2ecc71; font-size: 40px; margin: 10px 0;">✓</div>
+                    <div style="font-size: 16px;">處理完成！</div>
+                    <small style="color: #999">頁面即將重新整理</small>
+                `);
 
+                // 延遲 1.5 秒後重新整理頁面
                 setTimeout(() => {
                   hideUploadProgress();
-                  location.reload();
+                  window.location.reload(true); // 強制從伺服器重新載入
                 }, 1500);
                 break;
               } else if (status === "error") {
                 showUploadProgress(`
-                        <div style="color: #e74c3c; font-size: 40px; margin: 10px 0;">✗</div>
-                        <div style="font-size: 16px;">影片處理失敗</div>
-                    `);
+                    <div style="color: #e74c3c; font-size: 40px; margin: 10px 0;">✗</div>
+                    <div style="font-size: 16px;">影片處理失敗</div>
+                `);
                 throw new Error("壓縮失敗");
               } else if (status === "compressing") {
                 await new Promise((resolve) => setTimeout(resolve, 1000));

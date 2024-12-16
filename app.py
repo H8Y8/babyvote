@@ -170,7 +170,20 @@ def compress_video(input_path, output_path):
             return False
             
         ffmpeg_path = 'ffmpeg'
-        command = [ffmpeg_path, '-i', input_path] + FFMPEG_PARAMS + [output_path]
+        # 確保輸出檔案有 .mp4 副檔名
+        if not output_path.lower().endswith('.mp4'):
+            output_path = f"{output_path}.mp4"
+            
+        # 如果輸出檔案已存在，先刪除
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+                app.logger.info(f"已刪除舊的輸出檔案: {output_path}")
+            except Exception as e:
+                app.logger.warning(f"刪除舊檔案失敗: {str(e)}")
+            
+        # 加入 -y 參數以自動覆寫已存在的檔案
+        command = [ffmpeg_path, '-y', '-i', input_path] + FFMPEG_PARAMS + [output_path]
         
         app.logger.info(f"執行 FFmpeg 命令: {' '.join(command)}")
         result = subprocess.run(command, capture_output=True, text=True)
@@ -210,27 +223,33 @@ def upload_video():
         if 'video' not in request.files:
             return jsonify({'success': False, 'error': '沒有上傳檔案'}), 400
             
+        # 獲取上傳檔案的原始檔名
         video = request.files['video']
+        original_extension = os.path.splitext(video.filename)[1]  # 取得原始副檔名
+
+# 獲取自定義檔名並加上原始副檔名
         custom_filename = request.form.get('custom_filename', '').strip()
-        
+        if not custom_filename.endswith(original_extension):
+            custom_filename = f"{custom_filename}{original_extension}"
+        app.logger.info(f"開始的壓縮影片名稱2: {custom_filename}")
         if not custom_filename:
             return jsonify({'success': False, 'error': '請提供檔案名稱'}), 400
             
         # 確保檔案名稱安全
-        filename = secure_filename(f"{custom_filename}.mp4")
-        
+        original_filename = secure_chinese_filename(f"{custom_filename}")
+        app.logger.info(f"改名後的壓縮影片名稱: {original_filename}")
         # 儲存影片
-        video_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        video_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
         video.save(video_path)
         
         # 生成縮圖
-        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{filename}.jpg")
+        thumbnail_path = os.path.join(app.config['THUMBNAIL_FOLDER'], f"{original_filename}.jpg")
         if not generate_thumbnail(video_path, thumbnail_path):
             return jsonify({'success': False, 'error': '生成縮圖失敗'}), 500
             
         # 創建影片記錄
         video = Video(
-            filename=filename,
+            filename=original_filename,
             title=custom_filename,
             status=VIDEO_STATUS['UPLOADED']
         )
@@ -238,11 +257,11 @@ def upload_video():
         db.session.commit()
         
         # 開始壓縮處理
-        compress_video_async(filename)
+        compress_video_async(original_filename)
         
         return jsonify({
             'success': True,
-            'filename': filename
+            'filename': original_filename
         })
         
     except Exception as e:
@@ -275,9 +294,11 @@ def compress_video_async(filename):
         video.status = VIDEO_STATUS['COMPRESSING']
         db.session.commit()
         
-        # 設置壓縮文件路徑
+        # 設置壓縮文件路徑，保留原始檔案名稱
         input_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        output_path = os.path.join(app.config['UPLOAD_FOLDER'], f'compressed_{filename}')
+        # 使用原始檔案名稱，只在前面加上 compressed_ 前綴
+        compressed_filename = f'compressed_{os.path.splitext(filename)[0]}.mp4'
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], compressed_filename)
         
         app.logger.info(f"開始壓縮影片: {filename}")
         app.logger.info(f"輸入路徑: {input_path}")
@@ -285,19 +306,19 @@ def compress_video_async(filename):
         
         # 進行壓縮
         if compress_video(input_path, output_path):
-            app.logger.info(f"影片壓縮成功: {filename}")
+            app.logger.info(f"影片壓縮成功: {filename}")  # 使用原始檔案名稱記錄
             # 直接替換原始文件
             try:
                 os.replace(output_path, input_path)
                 video.status = VIDEO_STATUS['COMPLETED']
                 db.session.commit()
-                app.logger.info(f"影片處理完成: {filename}")
+                app.logger.info(f"影片處理完成: {filename}")  # 使用原始檔案名稱記錄
             except Exception as e:
                 app.logger.error(f"替換文件失敗: {str(e)}")
                 video.status = VIDEO_STATUS['ERROR']
                 db.session.commit()
         else:
-            app.logger.error(f"影片壓縮失敗: {filename}")
+            app.logger.error(f"影片壓縮失敗: {filename}")  # 使用原始檔案名稱記錄
             video.status = VIDEO_STATUS['ERROR']
             db.session.commit()
             
@@ -428,7 +449,7 @@ def allowed_file(filename):
 def get_videos():
     user_ip = request.remote_addr
     
-    # 獲取���前用戶的投票
+    # 獲取前用戶的投票
     current_vote = Vote.query.filter_by(ip_address=user_ip).first()
     
     # 獲取所有已完成的影片

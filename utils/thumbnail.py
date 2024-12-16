@@ -29,9 +29,9 @@ def generate_thumbnail(video_path, output_path, frame_time=0.1):
         ret, frame = cap.read()
         
         if ret:
-            # 調整圖片大小為 16:9 比例，寬度 480 像素
-            target_width = 480
-            target_height = int(target_width * 9 / 16)
+            # 調整圖片大小為 9:16 比例，寬度 270 像素
+            target_width = 270
+            target_height = int(target_width * 16 / 9)
             thumbnail = cv2.resize(frame, (target_width, target_height))
             
             # 儲存縮圖

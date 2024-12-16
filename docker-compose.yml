@@ -8,6 +8,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./instance:/app/instance
+      - ./static/thumbnails:/app/static/thumbnails
     environment:
       - FLASK_APP=app.py
       - FLASK_ENV=production
