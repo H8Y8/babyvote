@@ -1458,34 +1458,36 @@
           }, 1500);
         }
       };
+		
+async function updateRankings() {
+    try {
+        const response = await fetch("/rankings");
+        const rankings = await response.json();
 
-      async function updateRankings() {
-        try {
-          const response = await fetch("/rankings");
-          const rankings = await response.json();
+        const rankingsList = document.querySelector(".rankings-list");
+        rankingsList.innerHTML = ""; // 清空舊的排行榜內容
 
-          const rankingsList = document.querySelector(".rankings-list");
-          rankingsList.innerHTML = rankings
-            .map(
-              (video, index) => `
-              <div class="ranking-item">
-                  <span class="ranking-position">${index + 1}</span>
-                  <video class="ranking-thumbnail" src="/uploads/${
-                    video.filename
-                  }" preload="metadata"></video>
-                  <span class="ranking-title">${video.title}</span>
-                  <span class="ranking-votes">${video.votes} 票</span>
-              </div>
-          `
-            )
-            .join("");
-        } catch (error) {
-          console.error("更新排行榜失敗:", error);
-        }
-      }
+        // 重新生成排行榜項目
+        rankings.forEach((video, index) => {
+            const rankingItem = document.createElement("div");
+            rankingItem.className = "ranking-item";
+
+            rankingItem.innerHTML = `
+                <span class="ranking-position">${index + 1}</span>
+                <img class="ranking-thumbnail" src="/thumbnails/${video.filename}.jpg" alt="${video.title}">
+                <span class="ranking-title">${video.title}</span>
+                <span class="ranking-votes">${video.votes} 票</span>
+            `;
+
+            rankingsList.appendChild(rankingItem);
+        });
+    } catch (error) {
+        console.error("更新排行榜失敗:", error);
+    }
+}
 
       // 每 5 秒更新一次排行榜
-      setInterval(updateRankings, 5000);
+      setInterval(updateRankings, 10000);
       // 初始化排行榜
       updateRankings();
 
